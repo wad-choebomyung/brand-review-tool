@@ -90,10 +90,11 @@ INDEX_HTML = """<!doctype html>
     -webkit-font-smoothing:antialiased;min-height:100vh}
   a{color:inherit}
   .wrap{max-width:880px;margin:0 auto;padding:56px 24px 120px}
-  header{display:flex;align-items:baseline;gap:12px;margin-bottom:48px}
-  .logo{font-size:20px;font-weight:700;letter-spacing:-.01em}
-  .logo .dot{color:var(--accent)}
-  .tag{font-size:12px;color:var(--text-faint);letter-spacing:.12em;text-transform:uppercase}
+  header{display:flex;align-items:center;gap:14px;margin-bottom:48px}
+  .logo{display:inline-flex;align-items:center;line-height:0}
+  .logo svg{height:22px;width:auto;display:block}
+  .tag{font-size:12px;color:var(--text-faint);letter-spacing:.12em;text-transform:uppercase;
+    padding-left:14px;border-left:1px solid var(--border);line-height:1}
   h1{font-size:40px;line-height:1.15;letter-spacing:-.02em;font-weight:700;margin-bottom:12px}
   .sub{color:var(--text-dim);font-size:15px;margin-bottom:40px;line-height:1.6}
 
@@ -143,6 +144,16 @@ INDEX_HTML = """<!doctype html>
 
   .result{display:none}
   .result.show{display:block}
+  .result-thumb{display:none;margin-bottom:18px}
+  .result-thumb.show{display:flex;align-items:center;gap:14px;padding:14px;background:var(--bg-elev);
+    border:1px solid var(--border);border-radius:14px}
+  .result-thumb img{width:96px;height:96px;object-fit:cover;border-radius:10px;flex-shrink:0;
+    background:#000;border:1px solid var(--border)}
+  .result-thumb .meta{min-width:0;flex:1}
+  .result-thumb .meta .k{font-size:11px;color:var(--text-faint);letter-spacing:.08em;
+    text-transform:uppercase;margin-bottom:4px}
+  .result-thumb .meta .v{font-size:14px;color:var(--text);overflow:hidden;text-overflow:ellipsis;
+    white-space:nowrap}
   .score-row{display:flex;align-items:center;gap:28px;padding:28px;background:var(--bg-elev);
     border:1px solid var(--border);border-radius:14px;margin-bottom:18px}
   .score-num{font-size:72px;line-height:1;font-weight:700;letter-spacing:-.03em}
@@ -189,7 +200,21 @@ INDEX_HTML = """<!doctype html>
 <body>
 <div class="wrap">
   <header>
-    <div class="logo">catch<span class="dot">·</span>table</div>
+    <div class="logo" aria-label="CatchTable">
+      <svg viewBox="0 0 400 83" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
+        <path d="M246.703 0V7.44169H231.034V45.4492H221.956V7.44169H206.293V0H246.703Z" fill="#FF6B35"/>
+        <path d="M343.252 38.1971H364.038V45.4086H334.167V0H343.245V38.1971H343.252Z" fill="#FF6B35"/>
+        <path d="M379.214 7.40784V18.7769H400V25.9884H379.214V38.0075H400V45.4153H370.129V0H400V7.40784H379.214Z" fill="#FF6B35"/>
+        <path d="M240.984 45.4763L257.593 0H268.618L285.22 45.4763H275.493L263.041 9.41892L250.657 45.4763H240.991H240.984Z" fill="#FF6B35"/>
+        <path d="M321.337 22.7449C323.074 22.0881 324.555 20.9844 325.785 19.427C327.428 17.3482 328.246 14.9646 328.246 12.2832C328.246 9.85906 327.651 7.72609 326.461 5.88429C325.271 4.04249 323.554 2.60697 321.303 1.56418C319.052 0.528167 316.396 0.0067749 313.327 0.0067749H293.805V45.483H313.327C316.396 45.483 319.052 44.9616 321.303 43.9256C323.554 42.8828 325.271 41.4473 326.461 39.6055C327.651 37.7637 328.246 35.6308 328.246 33.2066C328.246 30.5184 327.421 28.1417 325.785 26.0629C324.555 24.5122 323.074 23.4017 321.337 22.7449ZM302.89 7.40784H312.036C314.239 7.40784 315.963 7.92923 317.193 8.96525C318.424 10.008 319.046 11.4774 319.046 13.3802C319.046 15.2829 318.397 16.8538 317.099 17.9576C315.801 19.0613 314.05 19.6166 311.846 19.6166H302.897V7.40784H302.89ZM317.187 36.5246C315.956 37.5606 314.239 38.082 312.029 38.082H302.883V25.8665H311.833C314.037 25.8665 315.787 26.4217 317.085 27.5255C318.383 28.6292 319.032 30.1595 319.032 32.1029C319.032 34.0463 318.417 35.4818 317.18 36.5178L317.187 36.5246Z" fill="#FF6B35"/>
+        <path d="M302.721 82.3529C288.208 82.3529 274.553 76.6853 264.278 66.3929L261.372 63.4812L267.185 57.6579L270.092 60.5696C278.812 69.3046 290.398 74.119 302.714 74.119C315.03 74.119 326.616 69.3046 335.336 60.5696L338.243 57.6579L344.057 63.4812L341.15 66.3929C330.875 76.6853 317.22 82.3529 302.707 82.3529H302.721Z" fill="#FF6B35"/>
+        <path d="M2.86612 11.667C4.77913 8.20007 7.38838 5.49831 10.7006 3.5617C14.0129 1.63187 17.7105 0.663574 21.7798 0.663574C26.7482 0.663574 31.0069 1.84179 34.549 4.20498C38.0911 6.56818 40.6733 9.8929 42.2888 14.1927H37.0636C35.7927 11.1727 33.8459 8.80949 31.2367 7.10988C28.6274 5.41028 25.4706 4.55709 21.7798 4.55709C18.5081 4.55709 15.5676 5.32225 12.9584 6.85257C10.3491 8.38289 8.30094 10.5836 6.8138 13.4546C5.32666 16.3257 4.58309 19.6572 4.58309 23.4356C4.58309 27.214 5.32666 30.5387 6.8138 33.3894C8.30094 36.2402 10.3491 38.4273 12.9584 39.9576C15.5676 41.4879 18.5081 42.2531 21.7798 42.2531C25.4706 42.2531 28.6274 41.4135 31.2367 39.7342C33.8459 38.0549 35.7927 35.7255 37.0636 32.7461H42.2888C40.6733 36.9985 38.0843 40.2962 34.5219 42.6323C30.9528 44.9752 26.7077 46.1398 21.7866 46.1398C17.7105 46.1398 14.0197 45.1715 10.7074 43.2349C7.39514 41.2983 4.78589 38.6101 2.87288 35.1635C0.953121 31.7372 0 27.8234 0 23.4423C0 19.0613 0.953121 15.1407 2.86612 11.6738V11.667Z" fill="#FF6B35"/>
+        <path d="M118.146 0.683899V4.45553H100.139V46.1534H95.5893V4.45553H77.5138V0.683899H118.146Z" fill="#FF6B35"/>
+        <path d="M124.061 11.6805C125.974 8.21362 128.583 5.51863 131.896 3.58203C135.208 1.64542 138.899 0.677124 142.975 0.677124C147.943 0.677124 152.195 1.85534 155.737 4.21853C159.279 6.57495 161.862 9.90645 163.47 14.1995H158.252C156.981 11.1795 155.041 8.82304 152.425 7.12343C149.816 5.42383 146.666 4.57064 142.968 4.57064C139.696 4.57064 136.763 5.3358 134.147 6.86612C131.537 8.39644 129.489 10.5971 128.002 13.4682C126.515 16.3392 125.771 19.6639 125.771 23.4491C125.771 27.2343 126.515 30.5522 128.002 33.3962C129.489 36.2469 131.537 38.4341 134.147 39.9644C136.756 41.4947 139.696 42.2599 142.968 42.2599C146.659 42.2599 149.816 41.4202 152.425 39.7409C155.034 38.0616 156.974 35.7323 158.252 32.7597H163.47C161.855 37.0121 159.266 40.3097 155.704 42.6458C152.134 44.9819 147.896 46.1534 142.968 46.1534C138.892 46.1534 135.201 45.1851 131.889 43.2553C128.577 41.3187 125.967 38.6304 124.054 35.1838C122.141 31.7372 121.188 27.8302 121.188 23.4491C121.188 19.0681 122.141 15.1475 124.054 11.6805H124.061Z" fill="#FF6B35"/>
+        <path d="M200.23 0.650024V46.1534H195.681V24.8779H171.068V46.1534H166.519V0.650024H171.068V21.1062H195.681V0.650024H200.23Z" fill="#FF6B35"/>
+        <path d="M45.4524 46.1534L62.6627 0.663574H67.8609L85.0711 46.1534H80.1365L65.2652 5.62696L50.2653 46.1534H45.4592H45.4524Z" fill="#FF6B35"/>
+      </svg>
+    </div>
     <div class="tag">Brand Review</div>
   </header>
 
@@ -235,6 +260,14 @@ INDEX_HTML = """<!doctype html>
     <h1>검수 결과</h1>
     <p class="sub" id="resultSub">—</p>
 
+    <div id="resultThumb" class="result-thumb">
+      <img id="resultThumbImg" alt="업로드한 이미지">
+      <div class="meta">
+        <div class="k">Reviewed Image</div>
+        <div class="v" id="resultThumbName">—</div>
+      </div>
+    </div>
+
     <div class="score-row">
       <div class="score-num" id="scoreNum">0</div>
       <div class="score-meta">
@@ -269,6 +302,7 @@ INDEX_HTML = """<!doctype html>
 <script>
   const $ = (s) => document.querySelector(s);
   let selectedFile = null;
+  let selectedDataUrl = null;
   let currentMedia = 'online';
 
   // Segmented control
@@ -290,7 +324,8 @@ INDEX_HTML = """<!doctype html>
     selectedFile = file;
     const r = new FileReader();
     r.onload = (e) => {
-      $('#previewImg').src = e.target.result;
+      selectedDataUrl = e.target.result;
+      $('#previewImg').src = selectedDataUrl;
       $('#preview').classList.add('show');
     };
     r.readAsDataURL(file);
@@ -309,14 +344,13 @@ INDEX_HTML = """<!doctype html>
     btn.disabled = true;
     $('#btnText').innerHTML = '<span class="spinner"></span> 검수 중… (최대 60초)';
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
+    const sendReview = async (dataUrl) => {
       try{
         const r = await fetch('/api/review', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({
-            image: e.target.result,
+            image: dataUrl,
             mediaType: currentMedia,
             context: $('#context').value || ''
           })
@@ -330,12 +364,25 @@ INDEX_HTML = """<!doctype html>
         $('#btnText').textContent = '다시 시도';
       }
     };
-    reader.readAsDataURL(selectedFile);
+
+    if (selectedDataUrl) {
+      sendReview(selectedDataUrl);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => { selectedDataUrl = e.target.result; sendReview(selectedDataUrl); };
+      reader.readAsDataURL(selectedFile);
+    }
   });
 
   function render(d){
     document.querySelector('.input-phase').style.display = 'none';
     $('#resultPhase').classList.add('show');
+
+    if (selectedDataUrl) {
+      $('#resultThumbImg').src = selectedDataUrl;
+      $('#resultThumbName').textContent = (selectedFile && selectedFile.name) || '업로드한 이미지';
+      $('#resultThumb').classList.add('show');
+    }
 
     const score = clamp(parseInt(d.overallScore ?? 0, 10), 0, 100);
     animateScore(score);
@@ -387,6 +434,7 @@ INDEX_HTML = """<!doctype html>
   $('#backBtn').addEventListener('click', () => {
     document.querySelector('.input-phase').style.display = '';
     $('#resultPhase').classList.remove('show');
+    $('#resultThumb').classList.remove('show');
     $('#analyzeBtn').disabled = false;
     $('#btnText').textContent = '검수 시작';
     hideBanner();
