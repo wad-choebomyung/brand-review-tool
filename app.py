@@ -18,7 +18,7 @@ from flask import Flask, request, jsonify, Response
 # App setup
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB
+app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 32 MB (base64 오버헤드 고려)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("brand-review")
 
@@ -299,7 +299,7 @@ INDEX_HTML = """<!doctype html>
         <input id="fileInput" type="file" accept="image/*" class="sr-only">
         <span class="icon">⬆</span>
         <span class="title">이미지를 드래그하거나 클릭해 업로드</span>
-        <span class="hint">PNG · JPG · WEBP · 최대 16MB</span>
+        <span class="hint">PNG · JPG · WEBP · 자동 최적화 (긴 변 2048px)</span>
         <span class="btn-sec">파일 선택</span>
         <span id="fileName" class="file-name"></span>
       </label>
@@ -436,60 +436,95 @@ INDEX_HTML = """<!doctype html>
   dz.addEventListener('drop', e => { if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
   $('#fileInput').addEventListener('change', e => { if(e.target.files[0]) handleFile(e.target.files[0]); });
 
-  function handleFile(file){
+  // 업로드 이미지를 긴 변 MAX_EDGE 이하로 리사이즈하고 JPEG 0.85로 재인코딩
+  // (GIF 등은 원본 유지)
+  function downscaleImage(file, maxEdge = 2048, quality = 0.85){
+    return new Promise((resolve, reject) => {
+      if (!file.type.startsWith('image/')) return reject(new Error('이미지 파일만 업로드할 수 있어요.'));
+      const keepOriginal = (file.type === 'image/gif' || file.type === 'image/svg+xml');
+      const fr = new FileReader();
+      fr.onerror = () => reject(new Error('이미지를 읽지 못했어요.'));
+      fr.onload = (e) => {
+        const srcDataUrl = e.target.result;
+        if (keepOriginal) return resolve({ dataUrl: srcDataUrl, width: null, height: null });
+        const img = new Image();
+        img.onerror = () => reject(new Error('이미지를 디코딩하지 못했어요.'));
+        img.onload = () => {
+          const maxSide = Math.max(img.naturalWidth, img.naturalHeight);
+          let w = img.naturalWidth, h = img.naturalHeight;
+          if (maxSide > maxEdge){
+            const ratio = maxEdge / maxSide;
+            w = Math.round(w * ratio);
+            h = Math.round(h * ratio);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          // PNG with transparency → keep PNG, else JPEG
+          const outMime = (file.type === 'image/png' || file.type === 'image/webp') ? file.type : 'image/jpeg';
+          const outUrl = outMime === 'image/jpeg'
+            ? canvas.toDataURL('image/jpeg', quality)
+            : canvas.toDataURL(outMime);
+          resolve({ dataUrl: outUrl, width: w, height: h });
+        };
+        img.src = srcDataUrl;
+      };
+      fr.readAsDataURL(file);
+    });
+  }
+
+  async function handleFile(file){
     if (!file.type.startsWith('image/')){ showBanner('이미지 파일만 업로드할 수 있어요.'); return; }
     selectedFile = file;
-    const r = new FileReader();
-    r.onload = (e) => {
-      selectedDataUrl = e.target.result;
+    $('#fileName').textContent = file.name + ' · 최적화 중…';
+    const btn = $('#analyzeBtn');
+    btn.disabled = true;
+    hideBanner();
+    try {
+      const { dataUrl } = await downscaleImage(file, 2048, 0.85);
+      selectedDataUrl = dataUrl;
       $('#previewImg').src = selectedDataUrl;
       $('#preview').classList.add('show');
-    };
-    r.readAsDataURL(file);
-    $('#fileName').textContent = file.name;
-    const btn = $('#analyzeBtn'); btn.disabled = false;
-    $('#btnText').textContent = '검수 시작';
-    hideBanner();
+      $('#fileName').textContent = file.name;
+      btn.disabled = false;
+      $('#btnText').textContent = '검수 시작';
+    } catch(err){
+      showBanner('오류: ' + (err.message || '이미지 처리 실패'));
+      $('#fileName').textContent = '';
+      selectedFile = null;
+      selectedDataUrl = null;
+    }
   }
 
   function showBanner(msg){ const b = $('#banner'); b.textContent = msg; b.classList.add('show'); }
   function hideBanner(){ $('#banner').classList.remove('show'); }
 
   $('#analyzeBtn').addEventListener('click', async () => {
-    if(!selectedFile){ showBanner('이미지를 먼저 업로드해 주세요.'); return; }
+    if(!selectedFile || !selectedDataUrl){ showBanner('이미지를 먼저 업로드해 주세요.'); return; }
     const btn = $('#analyzeBtn');
     btn.disabled = true;
     $('#btnText').innerHTML = '<span class="spinner"></span> 검수 중… (최대 60초)';
 
-    const sendReview = async (dataUrl) => {
-      try{
-        const r = await fetch('/api/review', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({
-            image: dataUrl,
-            mediaType: currentMedia,
-            subtype: currentSubtype,
-            extras: extraChecks,
-            context: $('#context').value || ''
-          })
-        });
-        const data = await r.json();
-        if (!r.ok) throw new Error(data.error || '요청 실패');
-        render(data);
-      } catch(err){
-        showBanner('오류: ' + err.message);
-        btn.disabled = false;
-        $('#btnText').textContent = '다시 시도';
-      }
-    };
-
-    if (selectedDataUrl) {
-      sendReview(selectedDataUrl);
-    } else {
-      const reader = new FileReader();
-      reader.onload = (e) => { selectedDataUrl = e.target.result; sendReview(selectedDataUrl); };
-      reader.readAsDataURL(selectedFile);
+    try{
+      const r = await fetch('/api/review', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          image: selectedDataUrl,
+          mediaType: currentMedia,
+          subtype: currentSubtype,
+          extras: extraChecks,
+          context: $('#context').value || ''
+        })
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || '요청 실패');
+      render(data);
+    } catch(err){
+      showBanner('오류: ' + err.message);
+      btn.disabled = false;
+      $('#btnText').textContent = '다시 시도';
     }
   });
 
