@@ -100,17 +100,20 @@ INDEX_HTML = """<!doctype html>
   .card{background:var(--bg-elev);border:1px solid var(--border);border-radius:14px;padding:28px;margin-bottom:20px}
   .label{font-size:12px;color:var(--text-faint);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px}
 
-  .drop{border:1.5px dashed #333;border-radius:12px;padding:44px 24px;text-align:center;
-    background:var(--bg-elev-2);transition:border-color .15s, background .15s;cursor:pointer}
+  .drop{display:block;border:1.5px dashed #333;border-radius:12px;padding:44px 24px;text-align:center;
+    background:var(--bg-elev-2);transition:border-color .15s, background .15s;cursor:pointer;position:relative}
   .drop:hover,.drop.active{border-color:var(--accent);background:#1f1a18}
-  .drop .icon{font-size:36px;margin-bottom:8px;display:block}
-  .drop .title{font-size:15px;color:var(--text);margin-bottom:4px}
-  .drop .hint{font-size:13px;color:var(--text-faint)}
-  #fileInput{display:none}
+  .drop .icon{font-size:36px;margin-bottom:10px;display:block;line-height:1}
+  .drop .title{font-size:15px;color:var(--text);margin-bottom:4px;display:block}
+  .drop .hint{font-size:13px;color:var(--text-faint);display:block}
+  /* Robust visually-hidden pattern for file input */
+  .sr-only{position:absolute!important;width:1px!important;height:1px!important;
+    padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;
+    white-space:nowrap!important;border:0!important;opacity:0!important;pointer-events:none!important}
   .btn-sec{display:inline-block;margin-top:14px;padding:10px 18px;border:1px solid #333;border-radius:8px;
     background:transparent;color:var(--text);font-size:13px;cursor:pointer;transition:border-color .15s}
-  .btn-sec:hover{border-color:var(--accent)}
-  .file-name{margin-top:12px;font-size:13px;color:var(--text-dim)}
+  .drop:hover .btn-sec,.drop.active .btn-sec{border-color:var(--accent)}
+  .file-name{margin-top:12px;font-size:13px;color:var(--text-dim);display:block;min-height:1em}
 
   .preview{display:none;margin-top:18px;border-radius:10px;overflow:hidden;border:1px solid var(--border);background:#000}
   .preview.show{display:block}
@@ -198,14 +201,14 @@ INDEX_HTML = """<!doctype html>
 
     <div class="card">
       <div class="label">Image</div>
-      <label for="fileInput" class="drop" id="dropZone">
+      <label class="drop" id="dropZone">
+        <input id="fileInput" type="file" accept="image/*" class="sr-only">
         <span class="icon">⬆</span>
-        <div class="title">이미지를 드래그하거나 클릭해 업로드</div>
-        <div class="hint">PNG · JPG · WEBP · 최대 16MB</div>
+        <span class="title">이미지를 드래그하거나 클릭해 업로드</span>
+        <span class="hint">PNG · JPG · WEBP · 최대 16MB</span>
         <span class="btn-sec">파일 선택</span>
-        <div id="fileName" class="file-name"></div>
+        <span id="fileName" class="file-name"></span>
       </label>
-      <input id="fileInput" type="file" accept="image/*">
       <div id="preview" class="preview"><img id="previewImg" alt=""></div>
     </div>
 
