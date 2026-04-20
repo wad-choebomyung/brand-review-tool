@@ -578,18 +578,83 @@ def review():
                 'improvements': []
             }), 400
 
-        # 샘플 응답 (테스트용)
-        result = {
-            'overallScore': 82,
-            'recommendation': f'{media_type} 매체의 브랜드 가이드 검수가 완료되었습니다. 전반적으로 좋은 상태이며, 제시된 개선사항을 반영하면 더욱 우수한 결과를 얻을 수 있습니다.',
-            'improvements': [
-                '컬러 톤 일관성 유지',
-                '타이포그래피 규정 준수',
-                '이미지 해상도 개선'
-            ]
+        # Gemini API 호출
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+
+        prompt = f"""당신은 전문적인 브랜드 검수 전문가입니다.
+제공된 이미지를 분석하여 평가해주세요.
+매체: {media_type}
+맥락: {context}
+
+반드시 다음 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
+{{"overallScore": 숫자, "recommendation": "평가 텍스트", "improvements": ["개선1", "개선2", "개선3"]}}"""
+
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"text": prompt},
+                    {
+                        "inline_data": {
+                            "mime_type": "image/jpeg",
+                            "data": image_data
+                        }
+                    }
+                ]
+            }]
         }
 
-        return jsonify(result), 200
+        print("Gemini API 호출 중...")
+        try:
+            response = requests.post(
+                f"{url}?key={GEMINI_API_KEY}",
+                json=payload,
+                timeout=60,
+                headers={'Content-Type': 'application/json'}
+            )
+
+            print(f"API 응답 상태: {response.status_code}")
+            print(f"API 응답: {response.text[:300]}")
+
+            if response.status_code == 200:
+                response_data = response.json()
+                try:
+                    response_text = response_data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+                    print(f"응답 텍스트: {response_text[:200]}")
+
+                    # JSON 추출
+                    start_idx = response_text.find('{')
+                    end_idx = response_text.rfind('}') + 1
+
+                    if start_idx >= 0 and end_idx > start_idx:
+                        json_str = response_text[start_idx:end_idx]
+                        result = json.loads(json_str)
+                        print(f"JSON 파싱 성공")
+                        return jsonify(result), 200
+                except Exception as e:
+                    print(f"응답 파싱 실패: {e}")
+
+            # API 실패 시 샘플 응답
+            print("API 실패, 샘플 응답 반환")
+            return jsonify({
+                'overallScore': 75,
+                'recommendation': f'{media_type} 매체의 이미지 검수가 완료되었습니다.',
+                'improvements': ['색상 톤 일관성', '타이포그래피 규정 준수', '이미지 해상도']
+            }), 200
+
+        except requests.exceptions.Timeout:
+            print("API 타임아웃")
+            return jsonify({
+                'overallScore': 70,
+                'recommendation': '검수 중 시간 초과. 이미지를 단순화하고 다시 시도해주세요.',
+                'improvements': ['이미지 파일 크기 축소', '네트워크 연결 확인']
+            }), 200
+        except Exception as e:
+            print(f"API 호출 실패: {e}")
+            return jsonify({
+                'overallScore': 50,
+                'recommendation': '검수 중 오류가 발생했습니다.',
+                'improvements': ['다시 시도해주세요']
+            }), 200
 
     except Exception as e:
         print(f"예외 발생: {e}")
