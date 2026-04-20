@@ -23,9 +23,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger("brand-review")
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
-# Multimodal models tried in order until one responds successfully.
-# First successful response is used; all 404s trigger the next candidate.
-_DEFAULT_MODELS = "gemini-2.0-flash,gemini-2.5-flash,gemini-1.5-flash-latest,gemini-1.5-flash-002"
+# Known-available multimodal models for this API key (verified via ListModels).
+# First successful response wins; failures fall through to the next candidate.
+_DEFAULT_MODELS = "gemini-2.5-flash,gemini-2.0-flash,gemini-flash-latest,gemini-pro-latest"
 GEMINI_MODELS = [m.strip() for m in os.environ.get("GEMINI_MODEL", _DEFAULT_MODELS).split(",") if m.strip()]
 GEMINI_URL_TEMPLATE = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -462,31 +462,27 @@ def call_gemini(prompt: str, mime: str, b64: str) -> dict:
         },
     }
 
-    last_err = None
+    errors = []
     for model in GEMINI_MODELS:
         url = GEMINI_URL_TEMPLATE.format(model=model, key=GEMINI_API_KEY)
         try:
             r = requests.post(url, json=payload, timeout=55)
         except requests.RequestException as exc:
-            last_err = f"{model} network error: {exc}"
-            log.warning(last_err)
+            errors.append(f"{model}: network {exc}")
+            log.warning("Gemini model=%s network error: %s", model, exc)
             continue
 
         log.info("Gemini model=%s status=%s bytes=%s", model, r.status_code, len(r.content))
-        if r.status_code == 404:
-            last_err = f"{model} not found (404)"
-            continue
         if r.status_code != 200:
-            snippet = r.text[:300]
-            last_err = f"{model} {r.status_code}: {snippet}"
-            # For non-404 non-200 errors, still try the next model
+            snippet = r.text[:200].replace("\n", " ")
+            errors.append(f"{model}: {r.status_code} {snippet}")
             continue
 
         body = r.json()
         try:
             text = body["candidates"][0]["content"]["parts"][0]["text"]
         except Exception as exc:  # noqa: BLE001
-            last_err = f"{model} unexpected shape: {exc}"
+            errors.append(f"{model}: shape {exc}")
             continue
 
         text = text.strip()
@@ -497,14 +493,14 @@ def call_gemini(prompt: str, mime: str, b64: str) -> dict:
         except json.JSONDecodeError:
             m = re.search(r"\{.*\}", text, re.DOTALL)
             if not m:
-                last_err = f"{model} did not return JSON"
+                errors.append(f"{model}: non-JSON response")
                 continue
             parsed = json.loads(m.group(0))
 
         parsed.setdefault("modelUsed", model)
         return parsed
 
-    raise RuntimeError(last_err or "All Gemini models failed")
+    raise RuntimeError("All models failed. " + " | ".join(errors))
 
 
 def sample_response(reason: str = "") -> dict:
