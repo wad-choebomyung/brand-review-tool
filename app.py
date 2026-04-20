@@ -543,6 +543,36 @@ def healthz():
     )
 
 
+@app.route("/debug/list-models", methods=["GET"])
+def list_models():
+    """Ask Google which models this API key can actually use."""
+    if not GEMINI_API_KEY:
+        return jsonify(error="GEMINI_API_KEY not set"), 400
+    out = {}
+    for api_version in ("v1beta", "v1"):
+        url = f"https://generativelanguage.googleapis.com/{api_version}/models?key={GEMINI_API_KEY}"
+        try:
+            r = requests.get(url, timeout=20)
+            if r.status_code == 200:
+                data = r.json().get("models", [])
+                # Filter to multimodal-capable only
+                mm = [
+                    {
+                        "name": m.get("name", "").replace("models/", ""),
+                        "methods": m.get("supportedGenerationMethods", []),
+                        "input": m.get("inputTokenLimit"),
+                    }
+                    for m in data
+                    if "generateContent" in m.get("supportedGenerationMethods", [])
+                ]
+                out[api_version] = {"count": len(mm), "models": mm[:40]}
+            else:
+                out[api_version] = {"status": r.status_code, "body": r.text[:300]}
+        except Exception as exc:  # noqa: BLE001
+            out[api_version] = {"error": str(exc)}
+    return jsonify(out)
+
+
 @app.route("/api/review", methods=["POST"])
 def review():
     try:
