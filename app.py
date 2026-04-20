@@ -109,10 +109,20 @@ INDEX_HTML = """<!doctype html>
   header{display:flex;align-items:center;margin-bottom:48px}
   .logo{display:inline-flex;align-items:center;line-height:0}
   .logo svg{height:22px;width:auto;display:block}
-  h1{font-size:40px;line-height:1.15;letter-spacing:-.02em;font-weight:700;margin-bottom:16px}
-  .lede{color:var(--text);font-size:17px;font-weight:600;line-height:1.55;
-    letter-spacing:-.005em;margin-bottom:12px}
+  h1{font-size:56px;line-height:1.1;letter-spacing:-.03em;font-weight:800;margin-bottom:24px}
+  .lede{color:var(--text-dim);font-size:17px;font-weight:400;line-height:1.65;
+    letter-spacing:-.005em;margin-bottom:36px;max-width:760px}
   .sub{color:var(--text-dim);font-size:15px;margin-bottom:40px;line-height:1.7}
+
+  .divider{height:1px;background:var(--border);margin:0 0 36px}
+  .features{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-bottom:56px}
+  .feature{display:flex;gap:14px;align-items:flex-start}
+  .feature .icon-wrap{width:48px;height:48px;flex-shrink:0;background:var(--bg-elev);
+    border:1px solid var(--border);border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--accent)}
+  .feature .icon-wrap svg{width:24px;height:24px;display:block}
+  .feature .f-body{min-width:0}
+  .feature h4{font-size:14px;font-weight:700;margin-bottom:6px;color:var(--text);letter-spacing:-.005em}
+  .feature p{font-size:13px;color:var(--text-dim);line-height:1.6}
 
   .card{background:var(--bg-elev);border:1px solid var(--border);border-radius:14px;padding:28px;margin-bottom:20px}
   .label{font-size:12px;color:var(--text-faint);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px}
@@ -216,7 +226,9 @@ INDEX_HTML = """<!doctype html>
 
   @media (max-width:640px){
     .wrap{padding:32px 18px 80px}
-    h1{font-size:30px}
+    h1{font-size:36px}
+    .lede{font-size:15px;margin-bottom:28px}
+    .features{grid-template-columns:1fr;gap:20px;margin-bottom:40px}
     .score-row{flex-direction:column;align-items:flex-start;gap:14px}
     .score-num{font-size:56px}
     .seg button{padding:12px 6px;font-size:12px}
@@ -246,7 +258,38 @@ INDEX_HTML = """<!doctype html>
   <section class="input-phase">
     <h1>브랜드 톤앤매너 검수</h1>
     <p class="lede">업로드한 디자인 산출물을 기반으로, 캐치테이블의 브랜드 아이덴티티와 디자인 시스템 전반에 대한 적합성을 AI가 자동으로 분석·검수합니다.</p>
-    <p class="sub">컬러, 타이포그래피, 그래픽 스타일, 컴포넌트 사용 방식 등 핵심 브랜드 자산이 가이드라인에 맞게 일관되게 적용되었는지 점검하며, 브랜드 톤앤매너와의 정합성을 종합적으로 평가합니다. 이를 통해 개별 디자이너의 해석에 의존하지 않고, 조직 전반에서 동일한 기준으로 브랜드 품질을 유지할 수 있도록 지원합니다.</p>
+
+    <div class="divider"></div>
+
+    <div class="features">
+      <div class="feature">
+        <div class="icon-wrap" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="17.5" cy="15.5" r="1.5"/><circle cx="13.5" cy="19.5" r="1.5"/><path d="M12 2a10 10 0 1 0 0 20c1.1 0 2-.9 2-2a2 2 0 0 1 2-2h2a4 4 0 0 0 4-4 10 10 0 0 0-10-10z"/></svg>
+        </div>
+        <div class="f-body">
+          <h4>핵심 자산 검수</h4>
+          <p>컬러, 타이포그래피, 그래픽 스타일, 컴포넌트 사용 방식 등 핵심 브랜드 자산이 가이드라인에 맞게 적용되었는지 점검합니다.</p>
+        </div>
+      </div>
+      <div class="feature">
+        <div class="icon-wrap" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+        </div>
+        <div class="f-body">
+          <h4>일관성 및 정합성 평가</h4>
+          <p>브랜드 톤앤매너와의 정합성을 종합적으로 평가하여 디자인의 일관성과 완성도를 높입니다.</p>
+        </div>
+      </div>
+      <div class="feature">
+        <div class="icon-wrap" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5 4.5 5.5v5.5c0 4.7 3.2 8.8 7.5 10.5 4.3-1.7 7.5-5.8 7.5-10.5V5.5L12 2.5z"/><path d="m8.8 12.2 2.4 2.4 4.2-4.6"/></svg>
+        </div>
+        <div class="f-body">
+          <h4>브랜드 품질 유지 지원</h4>
+          <p>조직 전반에서 동일한 기준으로 브랜드 품질을 유지할 수 있도록 체계적으로 지원합니다.</p>
+        </div>
+      </div>
+    </div>
 
     <div id="banner" class="banner"></div>
 
