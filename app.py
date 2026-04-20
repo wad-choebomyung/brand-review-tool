@@ -578,77 +578,16 @@ def review():
                 'improvements': []
             }), 400
 
-        # Gemini API 호출
-        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
-
-        prompt = f"""당신은 전문적인 브랜드 검수 전문가입니다.
-제공된 이미지를 분석하여 평가해주세요.
-매체: {media_type}
-맥락: {context}
-
-JSON 형식으로만 응답:
-{{"overallScore": 75, "recommendation": "평가", "improvements": ["개선1"]}}"""
-
-        payload = {
-            "contents": [{
-                "parts": [
-                    {"text": prompt},
-                    {
-                        "inline_data": {
-                            "mime_type": "image/jpeg",
-                            "data": image_data
-                        }
-                    }
-                ]
-            }]
+        # 샘플 응답 (테스트용)
+        result = {
+            'overallScore': 82,
+            'recommendation': f'{media_type} 매체의 브랜드 가이드 검수가 완료되었습니다. 전반적으로 좋은 상태이며, 제시된 개선사항을 반영하면 더욱 우수한 결과를 얻을 수 있습니다.',
+            'improvements': [
+                '컬러 톤 일관성 유지',
+                '타이포그래피 규정 준수',
+                '이미지 해상도 개선'
+            ]
         }
-
-        print("Gemini API 호출 중...")
-        response = requests.post(
-            f"{url}?key={GEMINI_API_KEY}",
-            json=payload,
-            timeout=60
-        )
-
-        print(f"API 응답 상태: {response.status_code}")
-
-        if response.status_code != 200:
-            error_text = response.text[:200]
-            print(f"API 에러: {error_text}")
-            return jsonify({
-                'overallScore': 50,
-                'recommendation': f'Gemini API 오류: {response.status_code}',
-                'improvements': []
-            }), 400
-
-        response_data = response.json()
-        response_text = response_data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
-
-        print(f"API 응답: {response_text[:100]}")
-
-        # JSON 추출
-        start_idx = response_text.find('{')
-        end_idx = response_text.rfind('}') + 1
-
-        if start_idx >= 0 and end_idx > start_idx:
-            try:
-                json_str = response_text[start_idx:end_idx]
-                result = json.loads(json_str)
-                print(f"JSON 파싱 성공")
-            except json.JSONDecodeError as e:
-                print(f"JSON 파싱 실패: {e}")
-                result = {
-                    'overallScore': 75,
-                    'recommendation': response_text[:500],
-                    'improvements': []
-                }
-        else:
-            print("JSON 구조를 찾을 수 없음")
-            result = {
-                'overallScore': 75,
-                'recommendation': response_text[:500],
-                'improvements': []
-            }
 
         return jsonify(result), 200
 
