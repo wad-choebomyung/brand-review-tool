@@ -10,19 +10,58 @@ import os
 import json
 import base64
 import re
+import time
+import uuid
+import secrets
 import logging
+import threading
+from collections import deque, defaultdict
+from functools import wraps
 import requests
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response, session, redirect, url_for
 
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 32 MB (base64 오버헤드 고려)
+# SECRET_KEY 는 세션 쿠키 서명용. 환경변수로 받고, 없으면 기동마다 랜덤 생성(=재배포 시 재로그인).
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("COOKIE_SECURE", "1") == "1"
+app.config["PERMANENT_SESSION_LIFETIME"] = 60 * 60 * 24 * 30  # 30 days
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("brand-review")
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "").strip()
+
+# ---------------------------------------------------------------------------
+# Rate limiter (in-memory, per-session)
+#   - REVIEW_RATE_MIN:  회/분  (기본 5)
+#   - REVIEW_RATE_HOUR: 회/시간 (기본 30)
+# 여러 gunicorn 워커가 있으면 각 워커 별로 카운트 (대략치). 악용 방지 수준으로 충분.
+# ---------------------------------------------------------------------------
+REVIEW_RATE_MIN = int(os.environ.get("REVIEW_RATE_MIN", "5"))
+REVIEW_RATE_HOUR = int(os.environ.get("REVIEW_RATE_HOUR", "30"))
+_rl_lock = threading.Lock()
+_rl_hits = defaultdict(deque)  # key -> deque[timestamp]
+
+def _rate_limit_check(key: str):
+    now = time.time()
+    with _rl_lock:
+        dq = _rl_hits[key]
+        while dq and now - dq[0] > 3600:
+            dq.popleft()
+        last_min = sum(1 for t in dq if now - t <= 60)
+        if last_min >= REVIEW_RATE_MIN:
+            return False, "분당 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요."
+        if len(dq) >= REVIEW_RATE_HOUR:
+            return False, "시간당 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요."
+        dq.append(now)
+    return True, ""
 # Known-available multimodal models for this API key (verified via ListModels).
 # First successful response wins; failures fall through to the next candidate.
 _DEFAULT_MODELS = "gemini-2.5-flash,gemini-2.0-flash,gemini-flash-latest,gemini-pro-latest"
@@ -83,7 +122,9 @@ INDEX_HTML = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CatchTable · 브랜드 검수</title>
+<meta name="theme-color" content="#0a0a0a">
+<meta name="robots" content="noindex,nofollow">
+<title>CatchTable · 브랜드 톤앤매너 검수</title>
 <style>
   :root{
     --bg:#0a0a0a;
@@ -91,8 +132,8 @@ INDEX_HTML = """<!doctype html>
     --bg-elev-2:#1c1c1c;
     --border:#2a2a2a;
     --text:#ffffff;
-    --text-dim:#9a9a9a;
-    --text-faint:#6b6b6b;
+    --text-dim:#a4a4a4;
+    --text-faint:#8a8a8a;
     --accent:#ff6b35;
     --accent-dim:#ff8a5c;
     --ok:#36d399;
@@ -191,11 +232,9 @@ INDEX_HTML = """<!doctype html>
   .result-thumb .meta .v{font-size:14px;color:var(--text);overflow:hidden;text-overflow:ellipsis;
     white-space:nowrap}
   .score-row{display:flex;align-items:center;gap:28px;padding:28px;background:var(--bg-elev);
-    border:1px solid var(--border);border-radius:14px;margin-bottom:18px}
-  .score-num{font-size:72px;line-height:1;font-weight:700;letter-spacing:-.03em}
+    border:1px solid var(--border);border-radius:14px;margin-bottom:4px}
   .score-meta{flex:1}
-  .score-bar{height:6px;background:#222;border-radius:999px;overflow:hidden;margin-top:10px}
-  .score-bar > span{display:block;height:100%;background:var(--accent);transition:width .6s ease}
+  .score-meta .label{margin-bottom:2px}
   .score-label{font-size:13px;color:var(--text-dim);margin-top:8px}
 
   .section{padding:24px 28px;background:var(--bg-elev);border:1px solid var(--border);
@@ -223,6 +262,32 @@ INDEX_HTML = """<!doctype html>
   .banner{display:none;padding:12px 14px;border-radius:10px;background:#2a1f12;border:1px solid #4a3522;
     color:var(--warn);font-size:13px;margin-bottom:18px}
   .banner.show{display:block}
+  .banner.error{background:#2a1515;border-color:#5a2626;color:#ff8a8a}
+
+  /* Keyboard focus */
+  *:focus{outline:none}
+  *:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+  .primary:focus-visible, .seg button:focus-visible, .subseg button:focus-visible,
+  .back:focus-visible, .btn-sec:focus-visible, .toolbtn:focus-visible{outline-offset:3px}
+
+  /* Score ring */
+  .ring-wrap{position:relative;width:128px;height:128px;flex-shrink:0}
+  .ring-wrap svg{transform:rotate(-90deg);display:block}
+  .ring-wrap .ring-bg{stroke:#222;fill:none}
+  .ring-wrap .ring-fg{stroke:var(--accent);fill:none;stroke-linecap:round;
+    transition:stroke-dashoffset .8s cubic-bezier(.2,.7,.3,1)}
+  .ring-wrap .ring-num{position:absolute;inset:0;display:flex;align-items:center;
+    justify-content:center;font-size:36px;font-weight:700;letter-spacing:-.02em}
+
+  /* Result toolbar */
+  .toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 22px}
+  .toolbtn{display:inline-flex;align-items:center;gap:6px;padding:10px 14px;
+    background:var(--bg-elev);border:1px solid var(--border);border-radius:10px;
+    color:var(--text-dim);font-size:13px;cursor:pointer;transition:all .15s;
+    font-family:inherit}
+  .toolbtn:hover{color:var(--text);border-color:#3a3a3a}
+  .toolbtn.on{color:var(--accent);border-color:var(--accent)}
+  .toolbtn svg{width:14px;height:14px}
 
   @media (max-width:640px){
     .wrap{padding:32px 18px 80px}
@@ -230,8 +295,12 @@ INDEX_HTML = """<!doctype html>
     .lede{font-size:15px;margin-bottom:28px}
     .features{grid-template-columns:1fr;gap:20px;margin-bottom:40px}
     .score-row{flex-direction:column;align-items:flex-start;gap:14px}
-    .score-num{font-size:56px}
-    .seg button{padding:12px 6px;font-size:12px}
+    .ring-wrap{width:108px;height:108px}
+    .ring-wrap svg{width:108px;height:108px}
+    .ring-wrap .ring-num{font-size:30px}
+    .seg button{padding:12px 6px;font-size:12px;min-height:44px}
+    .toolbar{gap:6px}
+    .toolbtn{padding:9px 10px;font-size:12px}
   }
 </style>
 </head>
@@ -291,10 +360,10 @@ INDEX_HTML = """<!doctype html>
       </div>
     </div>
 
-    <div id="banner" class="banner"></div>
+    <div id="banner" class="banner" role="alert" aria-live="polite"></div>
 
     <div class="card">
-      <div class="label">Image</div>
+      <div class="label">이미지</div>
       <label class="drop" id="dropZone">
         <input id="fileInput" type="file" accept="image/*" class="sr-only">
         <span class="icon">⬆</span>
@@ -307,11 +376,11 @@ INDEX_HTML = """<!doctype html>
     </div>
 
     <div class="card">
-      <div class="label">Media</div>
-      <div class="seg cols-3" id="seg">
-        <button data-v="social" class="on">소셜콘텐츠</button>
-        <button data-v="inapp">인앱</button>
-        <button data-v="print">인쇄물</button>
+      <div class="label">매체 타입</div>
+      <div class="seg cols-3" id="seg" role="radiogroup" aria-label="매체 타입">
+        <button data-v="social" class="on" role="radio" aria-checked="true">소셜콘텐츠</button>
+        <button data-v="inapp" role="radio" aria-checked="false">인앱</button>
+        <button data-v="print" role="radio" aria-checked="false">인쇄물</button>
       </div>
       <div class="subseg" id="subseg"></div>
     </div>
@@ -319,13 +388,13 @@ INDEX_HTML = """<!doctype html>
     <div class="card">
       <div class="label">추가 검수 기준 <span style="color:var(--text-faint)">· 복수 선택 가능</span></div>
       <div class="seg cols-2" id="segAlt">
-        <button data-v="graphic">그래픽 검수</button>
-        <button data-v="tone">이미지 톤앤매너</button>
+        <button data-v="graphic" aria-pressed="false">그래픽 검수</button>
+        <button data-v="tone" aria-pressed="false">이미지 톤앤매너</button>
       </div>
     </div>
 
     <div class="card">
-      <div class="label">Context <span style="color:var(--text-faint)">· optional</span></div>
+      <div class="label">제작 맥락 <span style="color:var(--text-faint)">· 선택</span></div>
       <textarea id="context" placeholder="예: 4월 미식 가이드 상세 페이지 메인 이미지"></textarea>
     </div>
 
@@ -334,47 +403,79 @@ INDEX_HTML = """<!doctype html>
     </button>
   </section>
 
-  <section id="resultPhase" class="result">
+  <section id="resultPhase" class="result" aria-live="polite">
     <h1>검수 결과</h1>
     <p class="sub" id="resultSub">—</p>
 
     <div id="resultThumb" class="result-thumb">
-      <img id="resultThumbImg" alt="업로드한 이미지">
+      <img id="resultThumbImg" alt="검수한 업로드 이미지">
       <div class="meta">
-        <div class="k">Reviewed Image</div>
+        <div class="k">검수 이미지</div>
         <div class="v" id="resultThumbName">—</div>
       </div>
     </div>
 
     <div class="score-row">
-      <div class="score-num" id="scoreNum">0</div>
+      <div class="ring-wrap" aria-label="종합 점수">
+        <svg width="128" height="128" viewBox="0 0 128 128" aria-hidden="true">
+          <circle class="ring-bg" cx="64" cy="64" r="56" stroke-width="10"/>
+          <circle id="scoreRing" class="ring-fg" cx="64" cy="64" r="56" stroke-width="10"
+                  stroke-dasharray="351.86" stroke-dashoffset="351.86"/>
+        </svg>
+        <div class="ring-num" id="scoreNum">0</div>
+      </div>
       <div class="score-meta">
-        <div class="label">Overall Score</div>
-        <div class="score-bar"><span id="scoreBar" style="width:0%"></span></div>
+        <div class="label">종합 점수</div>
         <div class="score-label" id="scoreLabel">—</div>
       </div>
     </div>
 
-    <div class="section" id="summarySection">
-      <h3>Summary <span id="categoryBadge" class="cat-badge" style="display:none"></span></h3>
-      <p id="summary">—</p>
-      <div class="meta-grid" id="metaGrid"></div>
+    <div class="toolbar" role="toolbar" aria-label="결과 공유 도구">
+      <button class="toolbtn" id="btnReanalyze" title="같은 이미지로 매체 타입만 바꿔서 다시 검수">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.3L3 16"/><path d="M3 21v-5h5"/></svg>
+        매체 바꿔 재검수
+      </button>
+      <button class="toolbtn" id="btnCopy">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+        텍스트 복사
+      </button>
+      <button class="toolbtn" id="btnDownload">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v14"/><path d="m6 11 6 6 6-6"/><path d="M4 21h16"/></svg>
+        이미지 저장
+      </button>
+      <button class="toolbtn" id="btnShareUrl">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
+        공유 링크 복사
+      </button>
     </div>
 
-    <div class="section" id="strengthsSection">
-      <h3>Strengths</h3>
-      <ul id="strengths"></ul>
+    <div id="captureArea">
+      <div class="section" id="summarySection">
+        <h3>요약 <span id="categoryBadge" class="cat-badge" style="display:none"></span></h3>
+        <p id="summary">—</p>
+        <div class="meta-grid" id="metaGrid"></div>
+      </div>
+
+      <div class="section" id="strengthsSection">
+        <h3>강점</h3>
+        <ul id="strengths"></ul>
+      </div>
+
+      <div class="section" id="improvementsSection">
+        <h3>개선점</h3>
+        <ul id="improvements"></ul>
+      </div>
     </div>
 
-    <div class="section" id="improvementsSection">
-      <h3>Improvements</h3>
-      <ul id="improvements"></ul>
-    </div>
-
-    <button class="back" id="backBtn">← 다시 검수하기</button>
+    <button class="back" id="backBtn">← 새 이미지로 검수하기</button>
   </section>
 
-  <div class="footer">© CatchTable · 브랜드 톤앤매너 검수</div>
+  <div class="footer">
+    © CatchTable · 브랜드 톤앤매너 검수
+    <form method="post" action="/logout" class="logout-form" style="display:inline;margin-left:10px">
+      <button type="submit" style="background:none;border:0;color:inherit;font-size:12px;cursor:pointer;padding:0;text-decoration:underline">로그아웃</button>
+    </form>
+  </div>
 </div>
 
 <script>
@@ -401,8 +502,11 @@ INDEX_HTML = """<!doctype html>
   // Primary Media: one-of social/inapp/print (always exactly one selected)
   $('#seg').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-v]'); if(!b) return;
-    document.querySelectorAll('#seg button').forEach(x => x.classList.remove('on'));
-    b.classList.add('on'); currentMedia = b.dataset.v;
+    document.querySelectorAll('#seg button').forEach(x => {
+      x.classList.remove('on'); x.setAttribute('aria-checked', 'false');
+    });
+    b.classList.add('on'); b.setAttribute('aria-checked', 'true');
+    currentMedia = b.dataset.v;
     renderSubtypes(currentMedia);
   });
 
@@ -410,8 +514,10 @@ INDEX_HTML = """<!doctype html>
   $('#segAlt').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-v]'); if(!b) return;
     b.classList.toggle('on');
+    const on = b.classList.contains('on');
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
     const v = b.dataset.v;
-    if (b.classList.contains('on')) {
+    if (on) {
       if (!extraChecks.includes(v)) extraChecks.push(v);
     } else {
       extraChecks = extraChecks.filter(x => x !== v);
@@ -497,8 +603,15 @@ INDEX_HTML = """<!doctype html>
     }
   }
 
-  function showBanner(msg){ const b = $('#banner'); b.textContent = msg; b.classList.add('show'); }
-  function hideBanner(){ $('#banner').classList.remove('show'); }
+  function showBanner(msg, type){
+    const b = $('#banner');
+    b.textContent = msg;
+    b.classList.toggle('error', type === 'error');
+    b.classList.add('show');
+  }
+  function hideBanner(){ $('#banner').classList.remove('show','error'); }
+
+  let lastResult = null;
 
   $('#analyzeBtn').addEventListener('click', async () => {
     if(!selectedFile || !selectedDataUrl){ showBanner('이미지를 먼저 업로드해 주세요.'); return; }
@@ -518,15 +631,30 @@ INDEX_HTML = """<!doctype html>
           context: $('#context').value || ''
         })
       });
+      if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname); return; }
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || '요청 실패');
+      lastResult = data;
       render(data);
     } catch(err){
-      showBanner('오류: ' + err.message);
+      showBanner('오류: ' + err.message, 'error');
       btn.disabled = false;
       $('#btnText').textContent = '다시 시도';
     }
   });
+
+  const CATEGORY_KO = {
+    food:'음식', space:'공간', people:'인물',
+    logo:'로고', event:'이벤트', graphic:'그래픽', other:'기타'
+  };
+  const SUBSCORE_LABELS = [
+    ['tone',             '톤·색감'],
+    ['typography',       '타이포그래피'],
+    ['composition',      '구도'],
+    ['imageQuality',     '이미지 품질'],
+    ['textImageHarmony', '텍스트·이미지 조화'],
+    ['brandFit',         '브랜드 적합도'],
+  ];
 
   function render(d){
     document.querySelector('.input-phase').style.display = 'none';
@@ -536,44 +664,35 @@ INDEX_HTML = """<!doctype html>
       $('#resultThumbImg').src = selectedDataUrl;
       $('#resultThumbName').textContent = (selectedFile && selectedFile.name) || '업로드한 이미지';
       $('#resultThumb').classList.add('show');
+    } else if (d._thumb) {
+      $('#resultThumbImg').src = d._thumb;
+      $('#resultThumbName').textContent = '공유된 검수 결과';
+      $('#resultThumb').classList.add('show');
     }
 
     const score = clamp(parseInt(d.overallScore ?? 0, 10), 0, 100);
     animateScore(score);
-    $('#scoreBar').style.width = score + '%';
-    $('#scoreLabel').textContent = scoreLabel(score) + (d.source === 'fallback' ? ' · (샘플 응답)' : '');
+    animateRing(score);
+    $('#scoreLabel').textContent = scoreLabel(score);
     $('#resultSub').textContent = d.summary || '—';
     $('#summary').textContent = d.summary || '—';
 
-    const CATEGORY_KO = {
-      food:'음식', space:'공간', people:'인물',
-      logo:'로고', event:'이벤트', graphic:'그래픽', other:'기타'
-    };
     const badge = $('#categoryBadge');
     if (d.category) {
       badge.textContent = CATEGORY_KO[d.category] || d.category;
       badge.style.display = 'inline-block';
-    } else {
-      badge.style.display = 'none';
-    }
+    } else { badge.style.display = 'none'; }
 
     const meta = d.subscores || {};
-    const cells = [
-      ['Tone · 색/톤', meta.tone],
-      ['Typography', meta.typography],
-      ['Composition', meta.composition],
-      ['Image Quality', meta.imageQuality],
-      ['Text · Image Harmony', meta.textImageHarmony],
-      ['Brand Fit', meta.brandFit]
-    ].filter(([,v]) => v != null);
+    const cells = SUBSCORE_LABELS.map(([k, l]) => [l, meta[k]]).filter(([,v]) => v != null);
     $('#metaGrid').innerHTML = cells.map(([k,v]) => {
       const cls = v >= 80 ? 'ok' : v >= 60 ? 'warn' : 'bad';
-      return `<div class="cell"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
+      return `<div class="cell"><div class="k">${escapeHtml(k)}</div><div class="v ${cls}">${v}</div></div>`;
     }).join('') || '';
 
     fillList('#strengths', d.strengths || []);
     fillList('#improvements', d.improvements || []);
-    window.scrollTo(0,0);
+    window.scrollTo({top:0, behavior:'smooth'});
   }
 
   function animateScore(target){
@@ -584,6 +703,18 @@ INDEX_HTML = """<!doctype html>
       el.textContent = cur;
       if (cur >= target) clearInterval(t);
     }, 20);
+  }
+  function animateRing(target){
+    const CIRC = 2 * Math.PI * 56; // r=56
+    const ring = $('#scoreRing');
+    if (!ring) return;
+    ring.setAttribute('stroke-dasharray', CIRC.toFixed(2));
+    // triggering transition
+    ring.setAttribute('stroke-dashoffset', CIRC.toFixed(2));
+    requestAnimationFrame(() => {
+      const off = CIRC * (1 - clamp(target, 0, 100)/100);
+      ring.setAttribute('stroke-dashoffset', off.toFixed(2));
+    });
   }
   function scoreLabel(s){
     if (s >= 85) return '브랜드 가이드에 잘 부합합니다';
@@ -599,14 +730,135 @@ INDEX_HTML = """<!doctype html>
   }
   function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
+  // 새 이미지로 검수하기: 전체 리셋
   $('#backBtn').addEventListener('click', () => {
     document.querySelector('.input-phase').style.display = '';
     $('#resultPhase').classList.remove('show');
     $('#resultThumb').classList.remove('show');
-    $('#analyzeBtn').disabled = false;
-    $('#btnText').textContent = '검수 시작';
+    $('#analyzeBtn').disabled = !selectedDataUrl;
+    $('#btnText').textContent = selectedDataUrl ? '검수 시작' : '이미지를 업로드해 주세요';
     hideBanner();
+    window.scrollTo({top:0, behavior:'smooth'});
   });
+
+  // 매체 타입만 바꿔서 재검수: 이미지·파일 상태 유지
+  $('#btnReanalyze').addEventListener('click', () => {
+    document.querySelector('.input-phase').style.display = '';
+    $('#resultPhase').classList.remove('show');
+    hideBanner();
+    $('#analyzeBtn').disabled = !selectedDataUrl;
+    $('#btnText').textContent = '검수 시작';
+    window.scrollTo({top:0, behavior:'smooth'});
+    // 포커스를 매체 선택 카드로
+    setTimeout(() => { $('#seg').scrollIntoView({behavior:'smooth', block:'center'}); }, 450);
+  });
+
+  // 텍스트 복사
+  $('#btnCopy').addEventListener('click', async () => {
+    if (!lastResult) return;
+    const d = lastResult;
+    const subLines = SUBSCORE_LABELS
+      .map(([k,l]) => (d.subscores && d.subscores[k] != null) ? `- ${l}: ${d.subscores[k]}` : null)
+      .filter(Boolean).join('\\n');
+    const cat = d.category ? (CATEGORY_KO[d.category] || d.category) : '';
+    const md = [
+      `# 브랜드 톤앤매너 검수 결과`,
+      cat ? `카테고리: ${cat}` : null,
+      `종합 점수: ${d.overallScore || 0} / 100`,
+      '',
+      `## 요약`,
+      d.summary || '—',
+      '',
+      `## 세부 점수`,
+      subLines || '—',
+      '',
+      `## 강점`,
+      ...(d.strengths||[]).map(x => `- ${x}`),
+      '',
+      `## 개선점`,
+      ...(d.improvements||[]).map(x => `- ${x}`),
+    ].filter(x => x !== null).join('\\n');
+    try{
+      await navigator.clipboard.writeText(md);
+      flashBtn('#btnCopy', '복사됨 ✓');
+    } catch(e){
+      showBanner('클립보드 복사에 실패했어요. 브라우저 권한을 확인해주세요.', 'error');
+    }
+  });
+
+  // 공유 링크 복사
+  $('#btnShareUrl').addEventListener('click', async () => {
+    if (!lastResult || !lastResult.reviewId) {
+      showBanner('공유할 결과 ID가 없습니다.', 'error'); return;
+    }
+    const url = location.origin + '/r/' + lastResult.reviewId;
+    try{
+      await navigator.clipboard.writeText(url);
+      flashBtn('#btnShareUrl', '링크 복사됨 ✓');
+    } catch(e){
+      showBanner('클립보드 복사에 실패했어요.', 'error');
+    }
+  });
+
+  // 이미지 저장 (결과 카드 영역을 PNG 로)
+  $('#btnDownload').addEventListener('click', async () => {
+    const btn = $('#btnDownload');
+    btn.disabled = true;
+    const prevLabel = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner" style="width:12px;height:12px;border-width:2px"></span> 생성 중…';
+    try{
+      await ensureHtml2Canvas();
+      const el = document.querySelector('#resultPhase');
+      // html2canvas 가 oklch / 최신 컬러함수 지원이 약해 배경색 명시
+      const canvas = await window.html2canvas(el, {
+        backgroundColor: '#0a0a0a', scale: 2, useCORS: true, logging: false,
+      });
+      const link = document.createElement('a');
+      link.href = canvas.toDataURL('image/png');
+      link.download = 'brand-review-' + (new Date().toISOString().slice(0,16).replace(/[:T]/g,'')) + '.png';
+      link.click();
+    } catch(e){
+      showBanner('이미지 생성에 실패했어요. 잠시 후 다시 시도해주세요.', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = prevLabel;
+    }
+  });
+
+  function ensureHtml2Canvas(){
+    if (window.html2canvas) return Promise.resolve();
+    return new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      s.onload = res; s.onerror = () => rej(new Error('html2canvas load failed'));
+      document.head.appendChild(s);
+    });
+  }
+
+  function flashBtn(sel, text){
+    const b = document.querySelector(sel);
+    const prev = b.innerHTML;
+    b.innerHTML = text;
+    b.classList.add('on');
+    setTimeout(() => { b.innerHTML = prev; b.classList.remove('on'); }, 1400);
+  }
+
+  // 공유 URL 경로로 진입한 경우 결과를 로드
+  (async function bootstrapSharedResult(){
+    const rid = document.body.dataset.sharedResult;
+    if (!rid) return;
+    try{
+      const r = await fetch('/api/result/' + encodeURIComponent(rid));
+      if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname); return; }
+      if (!r.ok) throw new Error('만료되었거나 존재하지 않는 공유 링크입니다.');
+      const data = await r.json();
+      lastResult = data;
+      render(data);
+    } catch(err){
+      document.querySelector('.input-phase').style.display = '';
+      showBanner('공유된 결과를 불러오지 못했어요: ' + err.message, 'error');
+    }
+  })();
 </script>
 </body>
 </html>
@@ -824,39 +1076,144 @@ def call_gemini(prompt: str, mime: str, b64: str) -> dict:
     raise RuntimeError("All models failed. " + " | ".join(errors))
 
 
-def sample_response(reason: str = "") -> dict:
-    return {
-        "category": "graphic",
-        "overallScore": 72,
-        "subscores": {
-            "tone": 70,
-            "typography": 74,
-            "composition": 75,
-            "imageQuality": 76,
-            "textImageHarmony": 72,
-            "brandFit": 70,
-        },
-        "summary": "샘플 응답입니다. 실제 Gemini 분석이 불가하여 기본 결과를 반환했습니다."
-        + (f" (사유: {reason})" if reason else ""),
-        "strengths": [
-            "전반적인 구도는 안정적입니다.",
-            "주요 피사체가 명확히 드러납니다.",
-        ],
-        "improvements": [
-            "다크톤 배경 및 여백 확보로 브랜드 톤에 더 맞출 수 있습니다.",
-            "타이포그래피의 위계(타이틀/서브)를 더 명확히 하면 좋습니다.",
-            "포인트 컬러(오렌지) 사용을 최소화하여 절제된 무드 유지.",
-        ],
-        "source": "fallback",
-    }
+# ---------------------------------------------------------------------------
+# Result store (in-memory, TTL 6h, 최대 200건) — 공유 URL 용
+# Render Free 환경은 인스턴스 재기동 시 초기화됨을 명시. 영속 보관이 필요하면 DB 연동 필요.
+# ---------------------------------------------------------------------------
+_RESULTS_LOCK = threading.Lock()
+_RESULTS = {}  # rid -> {data, created_at}
+_RESULT_TTL = 6 * 3600
+_RESULT_MAX = 200
+
+def _save_result(data: dict) -> str:
+    rid = uuid.uuid4().hex[:10]
+    now = time.time()
+    with _RESULTS_LOCK:
+        # prune
+        dead = [k for k, v in _RESULTS.items() if now - v["created_at"] > _RESULT_TTL]
+        for k in dead:
+            _RESULTS.pop(k, None)
+        if len(_RESULTS) >= _RESULT_MAX:
+            # 가장 오래된 것 제거
+            oldest = min(_RESULTS.items(), key=lambda kv: kv[1]["created_at"])
+            _RESULTS.pop(oldest[0], None)
+        _RESULTS[rid] = {"data": data, "created_at": now}
+    return rid
+
+def _get_result(rid: str):
+    with _RESULTS_LOCK:
+        entry = _RESULTS.get(rid)
+        if not entry:
+            return None
+        if time.time() - entry["created_at"] > _RESULT_TTL:
+            _RESULTS.pop(rid, None)
+            return None
+        return entry["data"]
+
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+PUBLIC_PATHS = {"/login", "/logout", "/healthz"}
+
+def _auth_enabled() -> bool:
+    return bool(APP_PASSWORD)
+
+def _is_authed() -> bool:
+    return not _auth_enabled() or bool(session.get("auth"))
+
+def login_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not _is_authed():
+            if request.path.startswith("/api/"):
+                return jsonify(error="인증이 필요합니다.", needsLogin=True), 401
+            return redirect(url_for("login", next=request.path))
+        return fn(*args, **kwargs)
+    return wrapper
+
+LOGIN_HTML = """<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0a0a0a">
+<title>로그인 · CatchTable 브랜드 검수</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:#0a0a0a;color:#fff;min-height:100vh;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR",Roboto,sans-serif}
+  .wrap{max-width:380px;margin:0 auto;padding:120px 24px}
+  h1{font-size:22px;font-weight:700;margin-bottom:8px;letter-spacing:-.01em}
+  p.sub{color:#9a9a9a;font-size:14px;margin-bottom:28px;line-height:1.6}
+  label{display:block;font-size:12px;color:#6b6b6b;letter-spacing:.08em;
+    text-transform:uppercase;margin-bottom:10px}
+  input{width:100%;padding:14px 16px;background:#141414;border:1px solid #2a2a2a;
+    border-radius:10px;color:#fff;font-size:15px;font-family:inherit}
+  input:focus{outline:none;border-color:#ff6b35}
+  button{width:100%;margin-top:14px;padding:14px;border:0;border-radius:10px;
+    background:#ff6b35;color:#fff;font-size:15px;font-weight:600;cursor:pointer}
+  button:hover{background:#ff8a5c}
+  .err{margin-top:14px;padding:10px 12px;border-radius:8px;background:#2a1f12;
+    border:1px solid #4a3522;color:#f6c453;font-size:13px}
+</style></head><body><div class="wrap">
+  <h1>CatchTable 브랜드 검수</h1>
+  <p class="sub">내부 전용 도구입니다. 공유받은 비밀번호를 입력해주세요.</p>
+  <form method="post" action="/login">
+    <input type="hidden" name="next" value="__NEXT__">
+    <label for="pw">비밀번호</label>
+    <input id="pw" type="password" name="password" autocomplete="current-password" autofocus required>
+    <button type="submit">접속</button>
+    __ERR__
+  </form>
+</div></body></html>"""
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not _auth_enabled():
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        provided = (request.form.get("password") or "").strip()
+        nxt = request.form.get("next") or "/"
+        if not nxt.startswith("/"):
+            nxt = "/"
+        if secrets.compare_digest(provided, APP_PASSWORD):
+            session.permanent = True
+            session["auth"] = True
+            session["sid"] = session.get("sid") or uuid.uuid4().hex
+            log.info("login success from %s", request.remote_addr)
+            return redirect(nxt)
+        log.info("login fail from %s", request.remote_addr)
+        html = LOGIN_HTML.replace("__NEXT__", nxt).replace(
+            "__ERR__", '<div class="err">비밀번호가 올바르지 않습니다.</div>')
+        return Response(html, mimetype="text/html; charset=utf-8"), 401
+    nxt = request.args.get("next", "/")
+    if not nxt.startswith("/"):
+        nxt = "/"
+    html = LOGIN_HTML.replace("__NEXT__", nxt).replace("__ERR__", "")
+    return Response(html, mimetype="text/html; charset=utf-8")
+
+
+@app.route("/logout", methods=["POST", "GET"])
+def logout():
+    session.clear()
+    return redirect(url_for("login") if _auth_enabled() else url_for("index"))
 
 
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 @app.route("/", methods=["GET"])
+@login_required
 def index():
-    return Response(INDEX_HTML, mimetype="text/html; charset=utf-8")
+    html = INDEX_HTML
+    if not _auth_enabled():
+        # 비번이 꺼져있으면 footer 의 로그아웃 버튼을 숨김
+        html = html.replace(
+            '<form method="post" action="/logout" class="logout-form"',
+            '<form method="post" action="/logout" class="logout-form" style="display:none"',
+            1,
+        )
+    return Response(html, mimetype="text/html; charset=utf-8")
 
 
 @app.route("/healthz", methods=["GET"])
@@ -864,13 +1221,17 @@ def healthz():
     return jsonify(
         ok=True,
         geminiConfigured=bool(GEMINI_API_KEY),
+        authEnabled=_auth_enabled(),
         models=GEMINI_MODELS,
     )
 
 
 @app.route("/debug/list-models", methods=["GET"])
 def list_models():
-    """Ask Google which models this API key can actually use."""
+    """Gated: admin 전용. ADMIN_TOKEN 환경변수와 일치하는 ?token=... 필요."""
+    provided = (request.args.get("token") or "").strip()
+    if not ADMIN_TOKEN or not secrets.compare_digest(provided, ADMIN_TOKEN):
+        return jsonify(error="Not found"), 404
     if not GEMINI_API_KEY:
         return jsonify(error="GEMINI_API_KEY not set"), 400
     out = {}
@@ -899,8 +1260,17 @@ def list_models():
 
 
 @app.route("/api/review", methods=["POST"])
+@login_required
 def review():
+    req_id = uuid.uuid4().hex[:8]
     try:
+        # Rate limit (per-session if authed, else per-IP)
+        rl_key = session.get("sid") or f"ip:{request.remote_addr}"
+        ok, msg = _rate_limit_check(rl_key)
+        if not ok:
+            log.info("[%s] rate limited key=%s", req_id, rl_key)
+            return jsonify(error=msg), 429
+
         data = request.get_json(silent=True) or {}
         image = data.get("image", "")
         media_type = data.get("mediaType", "social")
@@ -914,23 +1284,53 @@ def review():
         mime, b64 = parse_image(image)
         prompt = build_prompt(media_type, subtype, extras, context)
 
-        # Try real Gemini
-        if GEMINI_API_KEY:
-            try:
-                result = call_gemini(prompt, mime, b64)
-                # Attach source marker
-                result.setdefault("source", "gemini")
-                return jsonify(result)
-            except Exception as exc:  # noqa: BLE001
-                log.warning("Gemini failed, falling back to sample: %s", exc)
-                return jsonify(sample_response(str(exc)[:120]))
-        else:
-            log.warning("GEMINI_API_KEY missing — returning sample")
-            return jsonify(sample_response("GEMINI_API_KEY missing"))
+        if not GEMINI_API_KEY:
+            log.error("[%s] GEMINI_API_KEY not configured", req_id)
+            return jsonify(error="검수 엔진이 설정되지 않았습니다. 관리자에게 문의해주세요."), 503
 
-    except Exception as exc:  # noqa: BLE001
-        log.exception("review failed")
-        return jsonify(error=f"서버 오류: {exc}"), 500
+        try:
+            result = call_gemini(prompt, mime, b64)
+            result.setdefault("source", "gemini")
+            # 결과 임시 저장 (공유 URL 용). TTL = 6h, 최대 200건.
+            rid = _save_result(result)
+            result["reviewId"] = rid
+            log.info("[%s] review ok model=%s score=%s",
+                     req_id, result.get("modelUsed"), result.get("overallScore"))
+            return jsonify(result)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[%s] Gemini failed: %s", req_id, str(exc)[:240])
+            return jsonify(
+                error="일시적으로 검수를 완료하지 못했어요. 잠시 후 다시 시도해주세요.",
+                requestId=req_id,
+            ), 503
+
+    except Exception:  # noqa: BLE001
+        log.exception("[%s] review failed", req_id)
+        return jsonify(
+            error="서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+            requestId=req_id,
+        ), 500
+
+
+@app.route("/api/result/<rid>", methods=["GET"])
+@login_required
+def api_get_result(rid):
+    data = _get_result(rid)
+    if not data:
+        return jsonify(error="만료되었거나 존재하지 않는 결과입니다."), 404
+    return jsonify(data)
+
+
+@app.route("/r/<rid>", methods=["GET"])
+@login_required
+def share_view(rid):
+    # 같은 INDEX_HTML을 내려주고, 클라이언트가 /api/result/<rid> 로 데이터를 로드해 렌더.
+    # Hash 에 rid 를 박아 프론트가 감지하도록 함.
+    html = INDEX_HTML.replace(
+        "<body>",
+        f'<body data-shared-result="{rid}">'
+    )
+    return Response(html, mimetype="text/html; charset=utf-8")
 
 
 # ---------------------------------------------------------------------------
