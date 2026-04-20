@@ -23,11 +23,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger("brand-review")
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
-# Stable multimodal model as of 2025
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash").strip()
-GEMINI_URL = (
-    f"https://generativelanguage.googleapis.com/v1beta/models/"
-    f"{GEMINI_MODEL}:generateContent?key={{key}}"
+# Multimodal models tried in order until one responds successfully.
+# First successful response is used; all 404s trigger the next candidate.
+_DEFAULT_MODELS = "gemini-2.0-flash,gemini-2.5-flash,gemini-1.5-flash-latest,gemini-1.5-flash-002"
+GEMINI_MODELS = [m.strip() for m in os.environ.get("GEMINI_MODEL", _DEFAULT_MODELS).split(",") if m.strip()]
+GEMINI_URL_TEMPLATE = (
+    "https://generativelanguage.googleapis.com/v1beta/models/"
+    "{model}:generateContent?key={key}"
 )
 
 # ---------------------------------------------------------------------------
@@ -440,11 +442,10 @@ def parse_image(data_url: str):
 
 
 def call_gemini(prompt: str, mime: str, b64: str) -> dict:
-    """Call Gemini and return parsed JSON dict. Raises on failure."""
+    """Call Gemini, trying models in order. Returns parsed JSON dict and the model used."""
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY not configured")
 
-    url = GEMINI_URL.format(key=GEMINI_API_KEY)
     payload = {
         "contents": [
             {
@@ -461,31 +462,49 @@ def call_gemini(prompt: str, mime: str, b64: str) -> dict:
         },
     }
 
-    r = requests.post(url, json=payload, timeout=55)
-    log.info("Gemini status=%s bytes=%s", r.status_code, len(r.content))
-    if r.status_code != 200:
-        snippet = r.text[:400]
-        raise RuntimeError(f"Gemini {r.status_code}: {snippet}")
+    last_err = None
+    for model in GEMINI_MODELS:
+        url = GEMINI_URL_TEMPLATE.format(model=model, key=GEMINI_API_KEY)
+        try:
+            r = requests.post(url, json=payload, timeout=55)
+        except requests.RequestException as exc:
+            last_err = f"{model} network error: {exc}"
+            log.warning(last_err)
+            continue
 
-    body = r.json()
-    try:
-        text = body["candidates"][0]["content"]["parts"][0]["text"]
-    except Exception as exc:  # noqa: BLE001
-        raise RuntimeError(f"Unexpected Gemini response shape: {exc}") from exc
+        log.info("Gemini model=%s status=%s bytes=%s", model, r.status_code, len(r.content))
+        if r.status_code == 404:
+            last_err = f"{model} not found (404)"
+            continue
+        if r.status_code != 200:
+            snippet = r.text[:300]
+            last_err = f"{model} {r.status_code}: {snippet}"
+            # For non-404 non-200 errors, still try the next model
+            continue
 
-    # responseMimeType=application/json should give us JSON text; still be defensive
-    text = text.strip()
-    # Strip code fences if any
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        # Try to extract first JSON object in text
-        m = re.search(r"\{.*\}", text, re.DOTALL)
-        if not m:
-            raise RuntimeError("Model did not return JSON")
-        return json.loads(m.group(0))
+        body = r.json()
+        try:
+            text = body["candidates"][0]["content"]["parts"][0]["text"]
+        except Exception as exc:  # noqa: BLE001
+            last_err = f"{model} unexpected shape: {exc}"
+            continue
+
+        text = text.strip()
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            m = re.search(r"\{.*\}", text, re.DOTALL)
+            if not m:
+                last_err = f"{model} did not return JSON"
+                continue
+            parsed = json.loads(m.group(0))
+
+        parsed.setdefault("modelUsed", model)
+        return parsed
+
+    raise RuntimeError(last_err or "All Gemini models failed")
 
 
 def sample_response(reason: str = "") -> dict:
@@ -520,7 +539,7 @@ def healthz():
     return jsonify(
         ok=True,
         geminiConfigured=bool(GEMINI_API_KEY),
-        model=GEMINI_MODEL,
+        models=GEMINI_MODELS,
     )
 
 
