@@ -136,9 +136,11 @@ INDEX_HTML = """<!doctype html>
   .preview.show{display:block}
   .preview img{display:block;width:100%;max-height:360px;object-fit:contain}
 
-  .seg{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+  .seg{display:grid;gap:8px}
+  .seg.cols-3{grid-template-columns:repeat(3,1fr)}
+  .seg.cols-2{grid-template-columns:repeat(2,1fr)}
   .seg button{background:var(--bg-elev-2);border:1px solid var(--border);color:var(--text-dim);
-    padding:14px 6px;border-radius:10px;font-size:13px;cursor:pointer;transition:all .15s;white-space:nowrap}
+    padding:14px 8px;border-radius:10px;font-size:13px;cursor:pointer;transition:all .15s;white-space:nowrap}
   .seg button:hover{color:var(--text);border-color:#3a3a3a}
   .seg button.on{background:#201713;color:var(--accent);border-color:var(--accent)}
   .subseg{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
@@ -217,8 +219,7 @@ INDEX_HTML = """<!doctype html>
     h1{font-size:30px}
     .score-row{flex-direction:column;align-items:flex-start;gap:14px}
     .score-num{font-size:56px}
-    .seg{grid-template-columns:repeat(3,1fr)}
-    .seg button{padding:12px 4px;font-size:12px}
+    .seg button{padding:12px 6px;font-size:12px}
   }
 </style>
 </head>
@@ -264,14 +265,20 @@ INDEX_HTML = """<!doctype html>
 
     <div class="card">
       <div class="label">Media</div>
-      <div class="seg" id="seg">
+      <div class="seg cols-3" id="seg">
         <button data-v="social" class="on">소셜콘텐츠</button>
         <button data-v="inapp">인앱</button>
-        <button data-v="graphic">그래픽</button>
         <button data-v="print">인쇄물</button>
-        <button data-v="video">영상</button>
       </div>
       <div class="subseg" id="subseg"></div>
+    </div>
+
+    <div class="card">
+      <div class="label">별도 검수</div>
+      <div class="seg cols-2" id="segAlt">
+        <button data-v="graphic">그래픽 검수</button>
+        <button data-v="tone">이미지 톤앤매너</button>
+      </div>
     </div>
 
     <div class="card">
@@ -335,11 +342,11 @@ INDEX_HTML = """<!doctype html>
   let currentSubtype = '';
 
   const SUBTYPES = {
-    social:  [['square','정방형 카드'],['story','스토리/릴스 커버'],['event','이벤트 배너']],
-    inapp:   [['home','홈 배너'],['feature','기획전 메인'],['popup','팝업']],
-    graphic: [['poster','포스터'],['map','지도/일러스트'],['campaign','브랜드 캠페인']],
-    print:   [['menu','메뉴판'],['dm','DM/전단'],['brochure','브로슈어']],
-    video:   [['shorts','쇼츠/릴스'],['youtube','유튜브 썸네일'],['tvcf','광고 영상']]
+    social: [['feed','정방형 피드'],['reels','릴스 커버'],['ext-feature','외부용 기획전']],
+    inapp:  [['home','메인 배너'],['feature','기획전'],['intro','인트로 팝업'],['og','OG']],
+    print:  [['poster','매장 부착용 포스터'],['brochure','브로슈어']],
+    graphic: [],
+    tone:   []
   };
 
   function renderSubtypes(media){
@@ -349,12 +356,22 @@ INDEX_HTML = """<!doctype html>
     currentSubtype = '';
   }
 
-  // Segmented control (primary)
+  // Segmented control (primary Media: social/inapp/print)
   $('#seg').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-v]'); if(!b) return;
     document.querySelectorAll('#seg button').forEach(x => x.classList.remove('on'));
+    document.querySelectorAll('#segAlt button').forEach(x => x.classList.remove('on'));
     b.classList.add('on'); currentMedia = b.dataset.v;
     renderSubtypes(currentMedia);
+  });
+
+  // Segmented control (standalone modes: graphic / tone)
+  $('#segAlt').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-v]'); if(!b) return;
+    document.querySelectorAll('#seg button').forEach(x => x.classList.remove('on'));
+    document.querySelectorAll('#segAlt button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); currentMedia = b.dataset.v;
+    renderSubtypes(currentMedia); // empty list → subseg cleared
   });
 
   // Segmented control (subtype chips)
@@ -520,19 +537,20 @@ INDEX_HTML = """<!doctype html>
 # Gemini call
 # ---------------------------------------------------------------------------
 MEDIA_LABELS = {
-    "social":  "소셜콘텐츠(SNS) 디자인",
-    "inapp":   "인앱(앱 내) 디자인",
-    "graphic": "그래픽 디자인(마케팅/캠페인)",
+    "social":  "소셜콘텐츠 디자인",
+    "inapp":   "인앱 디자인",
     "print":   "인쇄물",
-    "video":   "영상/썸네일",
+    "graphic": "그래픽 검수",
+    "tone":    "이미지 톤앤매너",
 }
 
 SUBTYPE_LABELS = {
-    "square": "정방형 카드", "story": "스토리/릴스 커버", "event": "이벤트 배너",
-    "home": "홈 배너", "feature": "기획전 메인", "popup": "팝업",
-    "poster": "포스터", "map": "지도/일러스트", "campaign": "브랜드 캠페인",
-    "menu": "메뉴판", "dm": "DM/전단", "brochure": "브로슈어",
-    "shorts": "쇼츠/릴스", "youtube": "유튜브 썸네일", "tvcf": "광고 영상",
+    # social
+    "feed": "정방형 피드", "reels": "릴스 커버", "ext-feature": "외부용 기획전",
+    # inapp
+    "home": "메인 배너", "feature": "기획전", "intro": "인트로 팝업", "og": "OG",
+    # print
+    "poster": "매장 부착용 포스터", "brochure": "브로슈어",
 }
 
 CATEGORY_HINTS = {
@@ -540,11 +558,12 @@ CATEGORY_HINTS = {
                 "과도한 면분할 레이아웃, 얇은 웨이트 서체/스크립트 서체는 감점 사유다."),
     "inapp":   ("인앱은 '이미지와 텍스트가 자연스럽게 분리되어 충돌하지 않는가'가 핵심이다. "
                 "텍스트 영역과 이미지 영역의 대비·여백이 충분한지, 앱 UI로서 가독성이 확보되는지 평가한다."),
-    "graphic": ("그래픽은 기본적으로 장식·요소가 적은 심플한 디자인을 원칙으로 한다. "
-                "콘텐츠 전달력·마케팅 소구가 명확해 예외 적용한 경우라면 감점하지 않되, "
-                "근거가 약하거나 과잉 장식이면 감점한다."),
     "print":   "인쇄물은 인쇄 환경(여백·대비·글자 크기)과 브랜드 톤 일관성을 함께 본다.",
-    "video":   "영상·썸네일은 첫 프레임 가독성, 컬러 톤, 과도한 효과/자막 여부를 본다.",
+    "graphic": ("그래픽 검수는 장식·요소 과다 여부, 콘텐츠 전달력·마케팅 소구의 명확성, "
+                "예외 적용 근거의 타당성을 집중적으로 평가한다. 기본은 심플 원칙."),
+    "tone":    ("이미지 톤앤매너 검수는 이미지 자체의 색감·노출·질감·연출·무드가 "
+                "캐치테이블 브랜드 기준(세련·미식·차분한 고급감)과 부합하는지 집중 평가한다. "
+                "레이아웃/카피는 부차적이며 순수 이미지의 톤을 1순위로 본다."),
 }
 
 REVIEW_PROMPT_TEMPLATE = """당신은 CatchTable 브랜드 시각 검수관입니다.
@@ -605,6 +624,50 @@ def parse_image(data_url: str):
     return "image/png", data_url
 
 
+RESPONSE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "category": {"type": "STRING"},
+        "overallScore": {"type": "INTEGER"},
+        "subscores": {
+            "type": "OBJECT",
+            "properties": {
+                "tone": {"type": "INTEGER"},
+                "typography": {"type": "INTEGER"},
+                "composition": {"type": "INTEGER"},
+                "imageQuality": {"type": "INTEGER"},
+                "textImageHarmony": {"type": "INTEGER"},
+                "brandFit": {"type": "INTEGER"},
+            },
+            "required": ["tone", "typography", "composition",
+                         "imageQuality", "textImageHarmony", "brandFit"],
+        },
+        "summary": {"type": "STRING"},
+        "strengths": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "improvements": {"type": "ARRAY", "items": {"type": "STRING"}},
+    },
+    "required": ["category", "overallScore", "subscores",
+                 "summary", "strengths", "improvements"],
+}
+
+
+def _clean_json_text(text: str) -> str:
+    """Strip code fences, pull out the outermost JSON object, repair common issues."""
+    text = (text or "").strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    # Outermost {...}
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if m:
+        text = m.group(0)
+    # Strip //-comments and /* */ blocks (Gemini sometimes adds them)
+    text = re.sub(r"//[^\n\r]*", "", text)
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    # Remove trailing commas before } or ]
+    text = re.sub(r",\s*([}\]])", r"\1", text)
+    return text
+
+
 def call_gemini(prompt: str, mime: str, b64: str) -> dict:
     """Call Gemini, trying models in order. Returns parsed JSON dict and the model used."""
     if not GEMINI_API_KEY:
@@ -621,8 +684,9 @@ def call_gemini(prompt: str, mime: str, b64: str) -> dict:
         ],
         "generationConfig": {
             "temperature": 0.4,
-            "maxOutputTokens": 1024,
+            "maxOutputTokens": 2048,
             "responseMimeType": "application/json",
+            "responseSchema": RESPONSE_SCHEMA,
         },
     }
 
@@ -646,20 +710,18 @@ def call_gemini(prompt: str, mime: str, b64: str) -> dict:
         try:
             text = body["candidates"][0]["content"]["parts"][0]["text"]
         except Exception as exc:  # noqa: BLE001
-            errors.append(f"{model}: shape {exc}")
+            finish = (body.get("candidates", [{}])[0] or {}).get("finishReason", "?")
+            errors.append(f"{model}: shape {exc} (finish={finish})")
             continue
 
-        text = text.strip()
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
+        cleaned = _clean_json_text(text)
         try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError:
-            m = re.search(r"\{.*\}", text, re.DOTALL)
-            if not m:
-                errors.append(f"{model}: non-JSON response")
-                continue
-            parsed = json.loads(m.group(0))
+            parsed = json.loads(cleaned)
+        except json.JSONDecodeError as exc:
+            snippet = cleaned[:240].replace("\n", " ")
+            log.warning("Gemini model=%s JSON parse failed: %s :: %s", model, exc, snippet)
+            errors.append(f"{model}: JSON {exc.msg} @ line{exc.lineno} col{exc.colno}")
+            continue
 
         parsed.setdefault("modelUsed", model)
         return parsed
