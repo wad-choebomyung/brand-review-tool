@@ -41,7 +41,7 @@ BRAND_GUIDE = """
 1. Visual tone
    - Mood: 세련되고 미식적인(refined, culinary), 차분하고 고급스러운
    - Color: 다크톤 배경(#0A0A0A ~ #1A1A1A) 기반, 포인트는 따뜻한 오렌지(#FF6B35 계열)
-   - Typography: 산세리프, 큰 제목 + 넉넉한 행간, 흰색/밝은 회색 위주
+   - Typography: 산세리프 고딕, 큰 제목 + 넉넉한 행간, 흰색/밝은 회색 위주
    - Layout: 여백이 넉넉하고 미니멀. 과한 장식 금지.
 
 2. Copy / Message tone
@@ -54,7 +54,23 @@ BRAND_GUIDE = """
    - 과도한 필터·강한 원색·만화적 일러스트 지양.
    - 로고는 원형 그대로 노출, 왜곡 금지.
 
-4. Do / Don't
+4. 매체별 세부 규칙
+
+[소셜콘텐츠 디자인]
+- DO: 소구점이 큰 매장 이미지 위에 딥(어둡게) 처리하고, 가독성이 좋은 고딕 서체를 사용하여 구성한다.
+- DON'T: 지면 내에 과도한 면분할을 주는 레이아웃을 지양한다.
+- DON'T: 가독성이 약한 얇은 웨이트의 서체나 스크립트 서체는 사용하지 않는다.
+
+[인앱 디자인]
+- DO: 이미지와 텍스트는 자연스럽게 분리하여 서로 충돌하지 않도록 디자인한다.
+- 이미지 위에 텍스트를 올릴 때는 충분한 대비와 여백을 확보한다.
+
+[그래픽 디자인]
+- DO: 장식과 요소가 많은 디자인은 지양하는 것을 원칙으로 한다.
+- EXCEPTION: 콘텐츠 전달력과 마케팅 소구가 명확히 필요한 경우 예외적으로 적용 가능하며,
+  이 경우 브랜드팀의 사전 검토가 필요하다.
+
+5. 공통 Do / Don't
    - DO: 감각적인 식공간·테이블·디테일 클로즈업, 차분한 색감
    - DON'T: 클립아트, 싸구려 스톡 이미지, 혼잡한 타이포, 형광 색상
 """
@@ -120,11 +136,19 @@ INDEX_HTML = """<!doctype html>
   .preview.show{display:block}
   .preview img{display:block;width:100%;max-height:360px;object-fit:contain}
 
-  .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .seg{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
   .seg button{background:var(--bg-elev-2);border:1px solid var(--border);color:var(--text-dim);
-    padding:14px 12px;border-radius:10px;font-size:14px;cursor:pointer;transition:all .15s}
+    padding:14px 6px;border-radius:10px;font-size:13px;cursor:pointer;transition:all .15s;white-space:nowrap}
   .seg button:hover{color:var(--text);border-color:#3a3a3a}
   .seg button.on{background:#201713;color:var(--accent);border-color:var(--accent)}
+  .subseg{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  .subseg button{background:transparent;border:1px solid var(--border);color:var(--text-dim);
+    padding:8px 14px;border-radius:999px;font-size:13px;cursor:pointer;transition:all .15s}
+  .subseg button:hover{color:var(--text);border-color:#3a3a3a}
+  .subseg button.on{background:#201713;color:var(--accent);border-color:var(--accent)}
+  .cat-badge{display:inline-block;margin-left:10px;padding:3px 10px;border-radius:999px;
+    background:#201713;border:1px solid var(--accent);color:var(--accent);
+    font-size:11px;font-weight:500;letter-spacing:.04em;text-transform:none;vertical-align:middle}
 
   textarea{width:100%;min-height:72px;background:var(--bg-elev-2);border:1px solid var(--border);
     border-radius:10px;color:var(--text);padding:12px 14px;font-size:14px;line-height:1.5;resize:vertical;
@@ -193,7 +217,8 @@ INDEX_HTML = """<!doctype html>
     h1{font-size:30px}
     .score-row{flex-direction:column;align-items:flex-start;gap:14px}
     .score-num{font-size:56px}
-    .seg{grid-template-columns:1fr 1fr 1fr}
+    .seg{grid-template-columns:repeat(3,1fr)}
+    .seg button{padding:12px 4px;font-size:12px}
   }
 </style>
 </head>
@@ -240,10 +265,13 @@ INDEX_HTML = """<!doctype html>
     <div class="card">
       <div class="label">Media</div>
       <div class="seg" id="seg">
-        <button data-v="online" class="on">온라인</button>
+        <button data-v="social" class="on">소셜콘텐츠</button>
+        <button data-v="inapp">인앱</button>
+        <button data-v="graphic">그래픽</button>
         <button data-v="print">인쇄물</button>
         <button data-v="video">영상</button>
       </div>
+      <div class="subseg" id="subseg"></div>
     </div>
 
     <div class="card">
@@ -278,7 +306,7 @@ INDEX_HTML = """<!doctype html>
     </div>
 
     <div class="section" id="summarySection">
-      <h3>Summary</h3>
+      <h3>Summary <span id="categoryBadge" class="cat-badge" style="display:none"></span></h3>
       <p id="summary">—</p>
       <div class="meta-grid" id="metaGrid"></div>
     </div>
@@ -303,14 +331,42 @@ INDEX_HTML = """<!doctype html>
   const $ = (s) => document.querySelector(s);
   let selectedFile = null;
   let selectedDataUrl = null;
-  let currentMedia = 'online';
+  let currentMedia = 'social';
+  let currentSubtype = '';
 
-  // Segmented control
+  const SUBTYPES = {
+    social:  [['square','정방형 카드'],['story','스토리/릴스 커버'],['event','이벤트 배너']],
+    inapp:   [['home','홈 배너'],['feature','기획전 메인'],['popup','팝업']],
+    graphic: [['poster','포스터'],['map','지도/일러스트'],['campaign','브랜드 캠페인']],
+    print:   [['menu','메뉴판'],['dm','DM/전단'],['brochure','브로슈어']],
+    video:   [['shorts','쇼츠/릴스'],['youtube','유튜브 썸네일'],['tvcf','광고 영상']]
+  };
+
+  function renderSubtypes(media){
+    const wrap = $('#subseg');
+    const list = SUBTYPES[media] || [];
+    wrap.innerHTML = list.map(([v,l]) => `<button data-sv="${v}">${l}</button>`).join('');
+    currentSubtype = '';
+  }
+
+  // Segmented control (primary)
   $('#seg').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-v]'); if(!b) return;
     document.querySelectorAll('#seg button').forEach(x => x.classList.remove('on'));
     b.classList.add('on'); currentMedia = b.dataset.v;
+    renderSubtypes(currentMedia);
   });
+
+  // Segmented control (subtype chips)
+  $('#subseg').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-sv]'); if(!b) return;
+    const wasOn = b.classList.contains('on');
+    document.querySelectorAll('#subseg button').forEach(x => x.classList.remove('on'));
+    if (!wasOn){ b.classList.add('on'); currentSubtype = b.dataset.sv; }
+    else { currentSubtype = ''; }
+  });
+
+  renderSubtypes(currentMedia);
 
   // Drag & drop
   const dz = $('#dropZone');
@@ -352,6 +408,7 @@ INDEX_HTML = """<!doctype html>
           body: JSON.stringify({
             image: dataUrl,
             mediaType: currentMedia,
+            subtype: currentSubtype,
             context: $('#context').value || ''
           })
         });
@@ -391,11 +448,25 @@ INDEX_HTML = """<!doctype html>
     $('#resultSub').textContent = d.summary || '—';
     $('#summary').textContent = d.summary || '—';
 
+    const CATEGORY_KO = {
+      food:'음식', space:'공간', people:'인물',
+      logo:'로고', event:'이벤트', graphic:'그래픽', other:'기타'
+    };
+    const badge = $('#categoryBadge');
+    if (d.category) {
+      badge.textContent = CATEGORY_KO[d.category] || d.category;
+      badge.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+    }
+
     const meta = d.subscores || {};
     const cells = [
-      ['Visual · 색/톤', meta.tone],
+      ['Tone · 색/톤', meta.tone],
       ['Typography', meta.typography],
       ['Composition', meta.composition],
+      ['Image Quality', meta.imageQuality],
+      ['Text · Image Harmony', meta.textImageHarmony],
       ['Brand Fit', meta.brandFit]
     ].filter(([,v]) => v != null);
     $('#metaGrid').innerHTML = cells.map(([k,v]) => {
@@ -448,35 +519,77 @@ INDEX_HTML = """<!doctype html>
 # ---------------------------------------------------------------------------
 # Gemini call
 # ---------------------------------------------------------------------------
+MEDIA_LABELS = {
+    "social":  "소셜콘텐츠(SNS) 디자인",
+    "inapp":   "인앱(앱 내) 디자인",
+    "graphic": "그래픽 디자인(마케팅/캠페인)",
+    "print":   "인쇄물",
+    "video":   "영상/썸네일",
+}
+
+SUBTYPE_LABELS = {
+    "square": "정방형 카드", "story": "스토리/릴스 커버", "event": "이벤트 배너",
+    "home": "홈 배너", "feature": "기획전 메인", "popup": "팝업",
+    "poster": "포스터", "map": "지도/일러스트", "campaign": "브랜드 캠페인",
+    "menu": "메뉴판", "dm": "DM/전단", "brochure": "브로슈어",
+    "shorts": "쇼츠/릴스", "youtube": "유튜브 썸네일", "tvcf": "광고 영상",
+}
+
+CATEGORY_HINTS = {
+    "social":  ("소셜콘텐츠는 '소구점이 큰 매장 이미지 위 딥(어둡게) 처리 + 가독성 좋은 고딕' 원칙을 핵심 기준으로 삼는다. "
+                "과도한 면분할 레이아웃, 얇은 웨이트 서체/스크립트 서체는 감점 사유다."),
+    "inapp":   ("인앱은 '이미지와 텍스트가 자연스럽게 분리되어 충돌하지 않는가'가 핵심이다. "
+                "텍스트 영역과 이미지 영역의 대비·여백이 충분한지, 앱 UI로서 가독성이 확보되는지 평가한다."),
+    "graphic": ("그래픽은 기본적으로 장식·요소가 적은 심플한 디자인을 원칙으로 한다. "
+                "콘텐츠 전달력·마케팅 소구가 명확해 예외 적용한 경우라면 감점하지 않되, "
+                "근거가 약하거나 과잉 장식이면 감점한다."),
+    "print":   "인쇄물은 인쇄 환경(여백·대비·글자 크기)과 브랜드 톤 일관성을 함께 본다.",
+    "video":   "영상·썸네일은 첫 프레임 가독성, 컬러 톤, 과도한 효과/자막 여부를 본다.",
+}
+
 REVIEW_PROMPT_TEMPLATE = """당신은 CatchTable 브랜드 시각 검수관입니다.
 아래 [브랜드 가이드]를 기준으로, 업로드된 이미지를 검수하세요.
 
 [브랜드 가이드]
 {guide}
 
-[매체 타입] {media_type}
+[매체 타입] {media_label} (key={media_type})
+[세부 타입] {subtype_label}
+[이 매체의 핵심 기준] {category_hint}
 [제작 맥락] {context}
 
-반드시 아래 JSON 스키마에 맞춰 한국어로 응답하십시오. 다른 설명 문장은 절대 포함하지 마세요.
+먼저 이미지의 콘텐츠 카테고리를 아래 중 하나로 판정하고,
+그 카테고리·매체 타입에 맞춰 가이드를 적용해 점수를 매기세요.
+  - food(음식), space(공간·매장), people(인물), logo(로고),
+    event(이벤트 배너/쿠폰), graphic(그래픽/일러스트), other(기타)
+
+반드시 아래 JSON 스키마에 맞춰 한국어로만 응답하십시오. 다른 설명 문장은 절대 포함하지 마세요.
 {{
+  "category": "food|space|people|logo|event|graphic|other 중 하나",
   "overallScore": 0-100 사이 정수,
   "subscores": {{
     "tone": 0-100 정수,
     "typography": 0-100 정수,
     "composition": 0-100 정수,
+    "imageQuality": 0-100 정수,
+    "textImageHarmony": 0-100 정수,
     "brandFit": 0-100 정수
   }},
-  "summary": "1~2문장 요약",
+  "summary": "1~2문장 요약 (매체 타입과 카테고리에 맞춘 총평)",
   "strengths": ["잘된 점 1", "잘된 점 2", "..."],
   "improvements": ["개선 포인트 1", "개선 포인트 2", "..."]
 }}
 """
 
 
-def build_prompt(media_type: str, context: str) -> str:
+def build_prompt(media_type: str, subtype: str, context: str) -> str:
+    mt = media_type or "social"
     return REVIEW_PROMPT_TEMPLATE.format(
         guide=BRAND_GUIDE.strip(),
-        media_type=media_type or "online",
+        media_type=mt,
+        media_label=MEDIA_LABELS.get(mt, mt),
+        subtype_label=SUBTYPE_LABELS.get(subtype or "", "지정되지 않음"),
+        category_hint=CATEGORY_HINTS.get(mt, ""),
         context=(context or "없음").strip(),
     )
 
@@ -556,8 +669,16 @@ def call_gemini(prompt: str, mime: str, b64: str) -> dict:
 
 def sample_response(reason: str = "") -> dict:
     return {
+        "category": "graphic",
         "overallScore": 72,
-        "subscores": {"tone": 70, "typography": 74, "composition": 75, "brandFit": 70},
+        "subscores": {
+            "tone": 70,
+            "typography": 74,
+            "composition": 75,
+            "imageQuality": 76,
+            "textImageHarmony": 72,
+            "brandFit": 70,
+        },
         "summary": "샘플 응답입니다. 실제 Gemini 분석이 불가하여 기본 결과를 반환했습니다."
         + (f" (사유: {reason})" if reason else ""),
         "strengths": [
@@ -625,14 +746,15 @@ def review():
     try:
         data = request.get_json(silent=True) or {}
         image = data.get("image", "")
-        media_type = data.get("mediaType", "online")
+        media_type = data.get("mediaType", "social")
+        subtype = data.get("subtype", "")
         context = data.get("context", "")
 
         if not image:
             return jsonify(error="이미지 데이터가 없습니다."), 400
 
         mime, b64 = parse_image(image)
-        prompt = build_prompt(media_type, context)
+        prompt = build_prompt(media_type, subtype, context)
 
         # Try real Gemini
         if GEMINI_API_KEY:
