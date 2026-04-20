@@ -147,10 +147,6 @@ HTML_CONTENT = """<!DOCTYPE html>
             display: block;
         }
 
-        .preview-container {
-            margin-bottom: 1.5rem;
-        }
-
         .preview-image {
             max-width: 100%;
             max-height: 300px;
@@ -161,10 +157,6 @@ HTML_CONTENT = """<!DOCTYPE html>
         .preview-info {
             font-size: 0.875rem;
             color: #6b7280;
-        }
-
-        .preview-info strong {
-            color: #1f2937;
         }
 
         .meta-section {
@@ -192,34 +184,11 @@ HTML_CONTENT = """<!DOCTYPE html>
             margin-bottom: 0.75rem;
         }
 
-        .meta-input:focus {
-            outline: none;
-            border-color: #ea580c;
-            box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.1);
-        }
-
-        .meta-hint {
-            font-size: 0.75rem;
-            color: #9ca3af;
-            margin-bottom: 1.5rem;
-        }
-
-        .media-selector {
-            margin-bottom: 1.5rem;
-        }
-
-        .media-label-text {
-            display: block;
-            font-weight: 600;
-            color: #1f2937;
-            margin-bottom: 0.75rem;
-            font-size: 0.95rem;
-        }
-
         .media-options {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
             gap: 0.75rem;
+            margin-bottom: 1.5rem;
         }
 
         .media-option {
@@ -232,72 +201,35 @@ HTML_CONTENT = """<!DOCTYPE html>
             text-align: center;
         }
 
-        .media-option:hover {
-            border-color: #fed7aa;
-        }
-
         .media-option.selected {
             border-color: #ea580c;
             background: #fef3f2;
             font-weight: 600;
         }
 
-        .media-option-icon {
-            font-size: 1.5rem;
-            margin-bottom: 0.25rem;
-        }
-
-        .media-option-name {
-            font-size: 0.75rem;
-            font-weight: 500;
-        }
-
         .action-buttons {
             display: flex;
             gap: 1rem;
-            flex-wrap: wrap;
         }
 
         .btn-analyze {
             flex: 1;
-            min-width: 200px;
             padding: 1rem;
             background: #ea580c;
             color: white;
             border: none;
             border-radius: 0.5rem;
             font-weight: 700;
-            font-size: 1rem;
             cursor: pointer;
-            transition: all 0.3s ease;
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 0.5rem;
         }
 
-        .btn-analyze:hover:not(:disabled) {
-            background: #c2410c;
-        }
-
         .btn-analyze:disabled {
             opacity: 0.5;
             cursor: not-allowed;
-        }
-
-        .btn-reset {
-            padding: 1rem 1.5rem;
-            background: white;
-            color: #ea580c;
-            border: 2px solid #ea580c;
-            border-radius: 0.5rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .btn-reset:hover {
-            background: #fef3f2;
         }
 
         .spinner {
@@ -323,71 +255,39 @@ HTML_CONTENT = """<!DOCTYPE html>
 
         .results-header {
             display: flex;
-            align-items: center;
             justify-content: space-between;
+            align-items: center;
             margin-bottom: 2rem;
-            flex-wrap: wrap;
-            gap: 1rem;
         }
 
         .results-title {
             font-size: 2rem;
             font-weight: bold;
-            color: #1f2937;
         }
 
         .reset-btn {
             padding: 0.75rem 1.5rem;
-            background: white;
-            border: 2px solid #ea580c;
-            color: #ea580c;
+            background: #ea580c;
+            color: white;
+            border: none;
             border-radius: 0.5rem;
-            font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .reset-btn:hover {
-            background: #fef3f2;
-        }
-
-        .score-cards {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
+            font-weight: 600;
         }
 
         .score-card {
-            border-radius: 0.75rem;
-            padding: 2rem;
-            color: white;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-
-        .score-card.worst {
-            background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
-        }
-
-        .score-card.overall {
             background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-        }
-
-        .score-card.grade {
-            background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
-        }
-
-        .score-label {
-            font-size: 0.875rem;
-            font-weight: 600;
-            opacity: 0.9;
-            margin-bottom: 0.5rem;
+            color: white;
+            padding: 2rem;
+            border-radius: 0.75rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
 
         .score-number {
             font-size: 3rem;
             font-weight: bold;
-            margin-bottom: 0.75rem;
+            margin: 1rem 0;
         }
 
         .info-card {
@@ -400,7 +300,6 @@ HTML_CONTENT = """<!DOCTYPE html>
 
         .info-title {
             font-weight: 700;
-            color: #1f2937;
             margin-bottom: 1rem;
             font-size: 1.1rem;
         }
@@ -408,7 +307,6 @@ HTML_CONTENT = """<!DOCTYPE html>
         .summary-text {
             color: #4b5563;
             line-height: 1.6;
-            margin-bottom: 1rem;
         }
 
         footer {
@@ -420,36 +318,6 @@ HTML_CONTENT = """<!DOCTYPE html>
             color: #6b7280;
             font-size: 0.875rem;
         }
-
-        .hidden {
-            display: none;
-        }
-
-        @media (max-width: 768px) {
-            .drop-zone {
-                padding: 2.5rem 1rem;
-            }
-
-            .drop-text {
-                font-size: 1.1rem;
-            }
-
-            .drop-icon {
-                font-size: 3rem;
-            }
-
-            .score-number {
-                font-size: 2.5rem;
-            }
-
-            .action-buttons {
-                flex-direction: column;
-            }
-
-            .btn-analyze {
-                min-width: auto;
-            }
-        }
     </style>
 </head>
 <body>
@@ -457,7 +325,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         <div class="logo">
             <span class="catch">캐치</span><span class="table">테이블</span>
         </div>
-        <div class="header-text">브랜드 가이드 1차 검수 - 이미지를 드래그&드롭하기만 하면 AI가 검수해줍니다</div>
+        <div class="header-text">브랜드 가이드 1차 검수 - AI가 자동으로 검수합니다</div>
     </header>
 
     <div class="container">
@@ -471,37 +339,30 @@ HTML_CONTENT = """<!DOCTYPE html>
             </div>
 
             <div class="preview-section" id="previewSection">
-                <div class="preview-container">
+                <div>
                     <img id="previewImage" class="preview-image" alt="Preview">
                     <div class="preview-info">
-                        파일명: <strong id="fileName"></strong> | 크기: <strong id="fileSize"></strong>
+                        파일명: <strong id="fileName"></strong>
                     </div>
                 </div>
             </div>
 
             <div class="meta-section">
                 <label class="meta-label">📝 매체 타입</label>
-                <div class="media-selector">
-                    <span class="media-label-text">검수할 콘텐츠 유형:</span>
-                    <div class="media-options" id="mediaOptions">
-                        <button class="media-option selected" data-media="online">
-                            <div class="media-option-icon">📱</div>
-                            <div class="media-option-name">온라인</div>
-                        </button>
-                        <button class="media-option" data-media="print">
-                            <div class="media-option-icon">📄</div>
-                            <div class="media-option-name">인쇄물</div>
-                        </button>
-                        <button class="media-option" data-media="video">
-                            <div class="media-option-icon">🎬</div>
-                            <div class="media-option-name">영상</div>
-                        </button>
-                    </div>
+                <div class="media-options" id="mediaOptions">
+                    <button class="media-option selected" data-media="online" onclick="selectMedia('online')">
+                        📱 온라인
+                    </button>
+                    <button class="media-option" data-media="print" onclick="selectMedia('print')">
+                        📄 인쇄물
+                    </button>
+                    <button class="media-option" data-media="video" onclick="selectMedia('video')">
+                        🎬 영상
+                    </button>
                 </div>
 
-                <label class="meta-label">💬 제작 맥락 (선택사항)</label>
-                <textarea class="meta-input" id="context" rows="2" placeholder="예: 4월 미식 가이드 세로형 배너"></textarea>
-                <div class="meta-hint">제작 맥락을 입력하면 더 정확한 검수가 가능합니다</div>
+                <label class="meta-label">💬 제작 맥락 (선택)</label>
+                <textarea class="meta-input" id="context" rows="2" placeholder="예: 4월 미식 가이드"></textarea>
             </div>
 
             <div class="action-buttons">
@@ -514,18 +375,16 @@ HTML_CONTENT = """<!DOCTYPE html>
         <div class="results-phase" id="resultsPhase">
             <div class="results-header">
                 <h1 class="results-title">검수 결과</h1>
-                <button class="reset-btn" onclick="location.reload()">새로 검수하기</button>
+                <button class="reset-btn" onclick="location.reload()">새로 검수</button>
             </div>
 
-            <div class="score-cards">
-                <div class="score-card overall">
-                    <div class="score-label">종합 점수</div>
-                    <div class="score-number" id="totalScore">78</div>
-                </div>
+            <div class="score-card">
+                <div>종합 점수</div>
+                <div class="score-number" id="totalScore">78</div>
             </div>
 
             <div class="info-card">
-                <div class="info-title">📋 검수 결과</div>
+                <div class="info-title">📋 평가</div>
                 <div class="summary-text" id="summaryContent"></div>
             </div>
 
@@ -537,20 +396,20 @@ HTML_CONTENT = """<!DOCTYPE html>
     </div>
 
     <footer>
-        © 2024 CatchTable. 브랜드 가이드 검수 자동화 도구
+        © 2024 CatchTable. 브랜드 검수 도구
     </footer>
 
     <script>
         let selectedFile = null;
         let currentMedia = 'online';
 
-        document.querySelectorAll('.media-option').forEach(btn => {
-            btn.addEventListener('click', function() {
-                document.querySelectorAll('.media-option').forEach(b => b.classList.remove('selected'));
-                this.classList.add('selected');
-                currentMedia = this.dataset.media;
+        function selectMedia(media) {
+            currentMedia = media;
+            document.querySelectorAll('.media-option').forEach(btn => {
+                btn.classList.remove('selected');
             });
-        });
+            event.target.closest('button').classList.add('selected');
+        }
 
         const dropZone = document.getElementById('dropZone');
 
@@ -566,9 +425,8 @@ HTML_CONTENT = """<!DOCTYPE html>
         dropZone.addEventListener('drop', e => {
             e.preventDefault();
             dropZone.classList.remove('active');
-            const files = Array.from(e.dataTransfer.files);
-            if (files.length > 0) {
-                handleFile(files[0]);
+            if (e.dataTransfer.files.length > 0) {
+                handleFile(e.dataTransfer.files[0]);
             }
         });
 
@@ -589,8 +447,6 @@ HTML_CONTENT = """<!DOCTYPE html>
             reader.readAsDataURL(file);
 
             document.getElementById('fileName').textContent = file.name;
-            document.getElementById('fileSize').textContent = (file.size / 1024 / 1024).toFixed(2) + ' MB';
-
             document.getElementById('analyzeBtn').disabled = false;
         }
 
@@ -610,6 +466,8 @@ HTML_CONTENT = """<!DOCTYPE html>
                     const imageData = e.target.result;
                     const context = document.getElementById('context').value;
 
+                    console.log('API 호출 시작...');
+
                     const response = await fetch('/api/review', {
                         method: 'POST',
                         headers: {
@@ -622,18 +480,22 @@ HTML_CONTENT = """<!DOCTYPE html>
                         })
                     });
 
-                    if (!response.ok) {
-                        throw new Error('API 요청 실패');
-                    }
+                    console.log('응답 상태:', response.status);
 
                     const result = await response.json();
+                    console.log('결과:', result);
+
+                    if (!response.ok) {
+                        throw new Error(result.recommendation || 'API 오류');
+                    }
+
                     showResults(result);
                 };
                 reader.readAsDataURL(selectedFile);
 
             } catch (error) {
                 console.error('오류:', error);
-                alert('검수 중 오류: ' + error.message);
+                alert('오류: ' + error.message);
                 btn.innerHTML = '<span>🚀 검수 시작</span>';
                 btn.disabled = false;
             }
@@ -643,7 +505,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             document.getElementById('totalScore').textContent = result.overallScore || 75;
             document.getElementById('summaryContent').textContent = result.recommendation || '검수 완료';
 
-            const improvements = result.improvements ? result.improvements.join(', ') : '없음';
+            const improvements = result.improvements ? result.improvements.join('\\n') : '없음';
             document.getElementById('recommendationContent').textContent = improvements;
 
             document.querySelector('.input-phase').style.display = 'none';
@@ -663,15 +525,41 @@ def index():
 def review():
     """브랜드 검수 API"""
     try:
-        data = request.get_json()
+        print("=== API 요청 시작 ===")
+
+        # 요청 데이터 받기
+        try:
+            data = request.get_json()
+            print(f"받은 데이터: {list(data.keys())}")
+        except Exception as e:
+            print(f"JSON 파싱 에러: {e}")
+            return jsonify({
+                'overallScore': 50,
+                'recommendation': 'JSON 파싱 오류',
+                'improvements': []
+            }), 400
+
         image_data = data.get('image', '')
         media_type = data.get('mediaType', 'online')
         context = data.get('context', '')
 
-        if not image_data or not GEMINI_API_KEY:
+        print(f"이미지 크기: {len(image_data)}")
+        print(f"매체: {media_type}")
+        print(f"API 키 있음: {bool(GEMINI_API_KEY)}")
+
+        if not image_data:
+            print("이미지 없음")
             return jsonify({
                 'overallScore': 0,
-                'recommendation': '이미지 또는 API 키가 없습니다',
+                'recommendation': '이미지가 필요합니다',
+                'improvements': []
+            }), 400
+
+        if not GEMINI_API_KEY:
+            print("API 키 없음")
+            return jsonify({
+                'overallScore': 0,
+                'recommendation': 'API 키가 설정되지 않았습니다',
                 'improvements': []
             }), 400
 
@@ -679,28 +567,27 @@ def review():
         if ',' in image_data:
             image_data = image_data.split(',')[1]
 
-        image_bytes = base64.b64decode(image_data)
+        try:
+            image_bytes = base64.b64decode(image_data)
+            print(f"Base64 디코딩 성공: {len(image_bytes)} bytes")
+        except Exception as e:
+            print(f"Base64 디코딩 실패: {e}")
+            return jsonify({
+                'overallScore': 0,
+                'recommendation': 'Base64 디코딩 실패',
+                'improvements': []
+            }), 400
 
         # Gemini API 호출
         url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
 
         prompt = f"""당신은 전문적인 브랜드 검수 전문가입니다.
-제공된 이미지를 분석하여 다음을 평가해주세요:
-- 브랜드 일관성
-- 디자인 품질
-- 가독성
-- 전문성
-
+제공된 이미지를 분석하여 평가해주세요.
 매체: {media_type}
 맥락: {context}
 
-JSON 형식으로만 응답하세요:
-{{
-    "overallScore": 75,
-    "recommendation": "평가 및 권장사항",
-    "strengths": ["강점1", "강점2"],
-    "improvements": ["개선사항1", "개선사항2"]
-}}"""
+JSON 형식으로만 응답:
+{{"overallScore": 75, "recommendation": "평가", "improvements": ["개선1"]}}"""
 
         payload = {
             "contents": [{
@@ -716,48 +603,68 @@ JSON 형식으로만 응답하세요:
             }]
         }
 
+        print("Gemini API 호출 중...")
         response = requests.post(
             f"{url}?key={GEMINI_API_KEY}",
             json=payload,
-            timeout=30
+            timeout=60
         )
 
+        print(f"API 응답 상태: {response.status_code}")
+
         if response.status_code != 200:
+            error_text = response.text[:200]
+            print(f"API 에러: {error_text}")
             return jsonify({
                 'overallScore': 50,
-                'recommendation': 'API 호출 실패',
+                'recommendation': f'Gemini API 오류: {response.status_code}',
                 'improvements': []
             }), 400
 
         response_data = response.json()
-        response_text = response_data['candidates'][0]['content']['parts'][0]['text']
+        response_text = response_data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+
+        print(f"API 응답: {response_text[:100]}")
 
         # JSON 추출
         start_idx = response_text.find('{')
         end_idx = response_text.rfind('}') + 1
 
         if start_idx >= 0 and end_idx > start_idx:
-            json_str = response_text[start_idx:end_idx]
-            result = json.loads(json_str)
+            try:
+                json_str = response_text[start_idx:end_idx]
+                result = json.loads(json_str)
+                print(f"JSON 파싱 성공")
+            except json.JSONDecodeError as e:
+                print(f"JSON 파싱 실패: {e}")
+                result = {
+                    'overallScore': 75,
+                    'recommendation': response_text[:500],
+                    'improvements': []
+                }
         else:
+            print("JSON 구조를 찾을 수 없음")
             result = {
                 'overallScore': 75,
-                'recommendation': response_text,
+                'recommendation': response_text[:500],
                 'improvements': []
             }
 
-        return jsonify(result)
+        return jsonify(result), 200
 
     except Exception as e:
+        print(f"예외 발생: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'overallScore': 0,
-            'recommendation': f'오류: {str(e)}',
+            'recommendation': f'서버 오류: {str(e)}',
             'improvements': []
         }), 500
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({'status': 'ok'})
+    return jsonify({'status': 'ok', 'api_key': 'present' if GEMINI_API_KEY else 'missing'})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
