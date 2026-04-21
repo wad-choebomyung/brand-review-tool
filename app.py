@@ -75,7 +75,16 @@ GEMINI_URL_TEMPLATE = (
 )
 
 # 이미지 편집용 모델 (Figma 개선안 생성에 사용)
-GEMINI_IMAGE_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image-preview").strip()
+# 여러 모델명을 시도 — 맨 앞부터 순서대로. 실패하면 다음으로 폴백.
+_DEFAULT_IMAGE_MODELS = (
+    "gemini-2.5-flash-image-preview,"
+    "gemini-2.5-flash-image,"
+    "gemini-2.0-flash-preview-image-generation,"
+    "gemini-2.0-flash-exp-image-generation"
+)
+GEMINI_IMAGE_MODELS = [m.strip() for m in
+    os.environ.get("GEMINI_IMAGE_MODEL", _DEFAULT_IMAGE_MODELS).split(",") if m.strip()]
+GEMINI_IMAGE_MODEL = GEMINI_IMAGE_MODELS[0] if GEMINI_IMAGE_MODELS else ""
 GEMINI_IMAGE_ENABLED = os.environ.get("GEMINI_IMAGE_ENABLED", "true").strip().lower() != "false"
 
 # ---------------------------------------------------------------------------
@@ -1608,13 +1617,16 @@ Return ONLY the improved image as PNG. Do not add watermarks, labels, or annotat
 
 def call_gemini_image_edit(instruction: str, b64: str, mime: str = "image/png",
                             timeout: int = 55) -> str:
-    """Gemini 이미지 모델로 원본을 편집. 편집된 이미지의 base64를 반환."""
+    """Gemini 이미지 모델로 원본을 편집. 편집된 이미지의 base64를 반환.
+    GEMINI_IMAGE_MODELS 에 나열된 모델을 순서대로 시도한다.
+    """
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY not configured")
     if not GEMINI_IMAGE_ENABLED:
         raise RuntimeError("image editing disabled")
+    if not GEMINI_IMAGE_MODELS:
+        raise RuntimeError("no image model configured")
 
-    url = GEMINI_URL_TEMPLATE.format(model=GEMINI_IMAGE_MODEL, key=GEMINI_API_KEY)
     payload = {
         "contents": [
             {
@@ -1626,38 +1638,45 @@ def call_gemini_image_edit(instruction: str, b64: str, mime: str = "image/png",
         ],
         "generationConfig": {
             "temperature": 0.35,
-            "responseModalities": ["IMAGE"],
+            # 이미지 모델은 IMAGE + TEXT 둘 다 선언해야 이미지 파트를 돌려줌
+            "responseModalities": ["IMAGE", "TEXT"],
         },
     }
-    try:
-        r = requests.post(url, json=payload, timeout=timeout)
-    except requests.RequestException as exc:
-        raise RuntimeError(f"network error: {exc}")
 
-    log.info("Gemini image-edit model=%s status=%s bytes=%s",
-             GEMINI_IMAGE_MODEL, r.status_code, len(r.content))
+    errors = []
+    for model in GEMINI_IMAGE_MODELS:
+        url = GEMINI_URL_TEMPLATE.format(model=model, key=GEMINI_API_KEY)
+        try:
+            r = requests.post(url, json=payload, timeout=timeout)
+        except requests.RequestException as exc:
+            errors.append(f"{model}: network {exc}")
+            log.warning("Gemini image-edit model=%s network error: %s", model, exc)
+            continue
 
-    if r.status_code != 200:
-        snippet = r.text[:240].replace("\n", " ")
-        raise RuntimeError(f"image model {r.status_code}: {snippet}")
+        log.info("Gemini image-edit model=%s status=%s bytes=%s",
+                 model, r.status_code, len(r.content))
 
-    body = r.json()
-    try:
+        if r.status_code != 200:
+            snippet = r.text[:180].replace("\n", " ")
+            errors.append(f"{model}: {r.status_code} {snippet}")
+            continue
+
+        body = r.json()
         candidates = body.get("candidates") or []
         if not candidates:
-            raise RuntimeError("no candidates")
+            errors.append(f"{model}: no candidates")
+            continue
         parts = candidates[0].get("content", {}).get("parts") or []
-    except Exception as exc:  # noqa: BLE001
-        raise RuntimeError(f"unexpected shape: {exc}")
 
-    for part in parts:
-        # Google SDK는 camelCase, REST는 snake_case 둘 다 섞여 나올 수 있음
-        data = part.get("inlineData") or part.get("inline_data") or {}
-        if data.get("data"):
-            return data["data"]
+        for part in parts:
+            data = part.get("inlineData") or part.get("inline_data") or {}
+            if data.get("data"):
+                return data["data"]
 
-    finish = candidates[0].get("finishReason", "?")
-    raise RuntimeError(f"no image in response (finish={finish})")
+        finish = candidates[0].get("finishReason", "?")
+        errors.append(f"{model}: no image (finish={finish})")
+
+    raise RuntimeError("All image models failed. " + " | ".join(errors))
 
 
 # ---------------------------------------------------------------------------
@@ -1978,8 +1997,10 @@ def review_figma():
                     result["_improvedModel"] = GEMINI_IMAGE_MODEL
                     log.info("[%s] figma improvement ok model=%s", req_id, GEMINI_IMAGE_MODEL)
                 except Exception as exc:  # noqa: BLE001
-                    log.warning("[%s] figma improvement failed: %s", req_id, str(exc)[:240])
-                    result["_improvedError"] = "개선안 이미지 생성에 일시적으로 실패했어요."
+                    err_detail = str(exc)[:240]
+                    log.warning("[%s] figma improvement failed: %s", req_id, err_detail)
+                    # 실제 에러를 UI 에도 노출해 모델/스코프 이슈를 빨리 디버깅
+                    result["_improvedError"] = f"개선안 이미지 생성 실패 — {err_detail}"
 
             rid = _save_result(result)
             result["reviewId"] = rid
