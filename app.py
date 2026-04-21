@@ -793,7 +793,7 @@ INDEX_HTML = """<!doctype html>
     if (PAGE_MODE === 'figma') {
       if (!figmaUrlOk || !figmaParsedUrl) { showBanner('유효한 Figma URL을 입력해 주세요.'); return; }
       btn.disabled = true;
-      $('#btnText').innerHTML = '<span class="spinner"></span> Figma 렌더링 후 검수 중… (최대 80초)';
+      $('#btnText').textContent = 'Figma 렌더링 후 검수 중… (최대 80초)';
       startProgress(80);
       try {
         const r = await fetch('/api/review-figma', {
@@ -825,7 +825,7 @@ INDEX_HTML = """<!doctype html>
     // image mode (기존 동작)
     if(!selectedFile || !selectedDataUrl){ showBanner('이미지를 먼저 업로드해 주세요.'); return; }
     btn.disabled = true;
-    $('#btnText').innerHTML = '<span class="spinner"></span> 검수 중… (최대 60초)';
+    $('#btnText').textContent = '검수 중… (최대 60초)';
     startProgress(60);
 
     try{
