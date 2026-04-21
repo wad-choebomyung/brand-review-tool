@@ -238,9 +238,22 @@ INDEX_HTML = """<!doctype html>
   .primary{display:flex;align-items:center;justify-content:center;gap:10px;
     width:100%;padding:18px;border:0;border-radius:12px;background:var(--accent);color:#fff;
     font-size:16px;font-weight:600;letter-spacing:-.005em;cursor:pointer;transition:background .15s;
-    margin-top:4px}
+    margin-top:4px;position:relative;overflow:hidden;isolation:isolate}
   .primary:hover{background:var(--accent-dim)}
   .primary:disabled{background:#333;color:#777;cursor:not-allowed}
+  .primary::before{content:"";position:absolute;top:0;left:0;bottom:0;width:0;
+    background:linear-gradient(90deg, rgba(255,107,53,.55), rgba(255,107,53,.38));
+    z-index:-1;pointer-events:none;border-radius:inherit}
+  .primary.loading::before{width:96%;
+    transition:width var(--progress-dur,60s) cubic-bezier(.08,.7,.35,1)}
+  .primary.loading::after{content:"";position:absolute;inset:0;
+    background:linear-gradient(90deg, transparent 0%, rgba(255,255,255,.18) 50%, transparent 100%);
+    background-size:35% 100%;background-repeat:no-repeat;background-position:-35% 0;
+    animation:shimmer 1.8s ease-in-out infinite;z-index:-1;pointer-events:none;border-radius:inherit}
+  @keyframes shimmer{
+    0%{background-position:-35% 0}
+    100%{background-position:135% 0}
+  }
   .spinner{width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;
     border-radius:50%;animation:spin .7s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
@@ -760,6 +773,20 @@ INDEX_HTML = """<!doctype html>
 
   let lastResult = null;
 
+  function startProgress(seconds){
+    const btn = $('#analyzeBtn');
+    btn.classList.remove('loading');
+    btn.style.setProperty('--progress-dur', seconds + 's');
+    // Force reflow so the transition restarts cleanly from 0
+    void btn.offsetWidth;
+    btn.classList.add('loading');
+  }
+  function stopProgress(){
+    const btn = $('#analyzeBtn');
+    btn.classList.remove('loading');
+    btn.style.removeProperty('--progress-dur');
+  }
+
   $('#analyzeBtn').addEventListener('click', async () => {
     const btn = $('#analyzeBtn');
 
@@ -767,6 +794,7 @@ INDEX_HTML = """<!doctype html>
       if (!figmaUrlOk || !figmaParsedUrl) { showBanner('유효한 Figma URL을 입력해 주세요.'); return; }
       btn.disabled = true;
       $('#btnText').innerHTML = '<span class="spinner"></span> Figma 렌더링 후 검수 중… (최대 80초)';
+      startProgress(80);
       try {
         const r = await fetch('/api/review-figma', {
           method:'POST',
@@ -783,8 +811,10 @@ INDEX_HTML = """<!doctype html>
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || '요청 실패');
         lastResult = data;
+        stopProgress();
         render(data);
       } catch(err) {
+        stopProgress();
         showBanner('오류: ' + err.message, 'error');
         btn.disabled = false;
         $('#btnText').textContent = '다시 시도';
@@ -796,6 +826,7 @@ INDEX_HTML = """<!doctype html>
     if(!selectedFile || !selectedDataUrl){ showBanner('이미지를 먼저 업로드해 주세요.'); return; }
     btn.disabled = true;
     $('#btnText').innerHTML = '<span class="spinner"></span> 검수 중… (최대 60초)';
+    startProgress(60);
 
     try{
       const r = await fetch('/api/review', {
@@ -813,8 +844,10 @@ INDEX_HTML = """<!doctype html>
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || '요청 실패');
       lastResult = data;
+      stopProgress();
       render(data);
     } catch(err){
+      stopProgress();
       showBanner('오류: ' + err.message, 'error');
       btn.disabled = false;
       $('#btnText').textContent = '다시 시도';
