@@ -37,6 +37,9 @@ log = logging.getLogger("brand-review")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "").strip()
+FIGMA_TOKEN = os.environ.get("FIGMA_TOKEN", "").strip()
+# 렌더 스케일: 너무 크면 base64 전송비 증가, 너무 작으면 품질 저하. 1.5 권장.
+FIGMA_RENDER_SCALE = os.environ.get("FIGMA_RENDER_SCALE", "1.5")
 
 # ---------------------------------------------------------------------------
 # Rate limiter (in-memory, per-session)
@@ -147,9 +150,32 @@ INDEX_HTML = """<!doctype html>
     -webkit-font-smoothing:antialiased;min-height:100vh}
   a{color:inherit}
   .wrap{max-width:880px;margin:0 auto;padding:56px 24px 120px}
-  header{display:flex;align-items:center;margin-bottom:48px}
+  header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:48px}
   .logo{display:inline-flex;align-items:center;line-height:0}
   .logo svg{height:22px;width:auto;display:block}
+  .gnb{display:inline-flex;gap:8px}
+  .gnb a{display:inline-flex;align-items:center;gap:6px;padding:9px 14px;background:var(--bg-elev-2);border:1px solid var(--border);color:var(--text-dim);border-radius:10px;font-size:13px;text-decoration:none;transition:all .15s;white-space:nowrap;font-weight:500}
+  .gnb a:hover{color:var(--text);border-color:#3a3a3a}
+  .gnb a.on{background:#201713;color:var(--accent);border-color:var(--accent)}
+  .gnb svg{width:14px;height:14px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  /* mode-based show/hide */
+  .figma-input{display:none}
+  body[data-mode="figma"] .image-input{display:none}
+  body[data-mode="figma"] .figma-input{display:block}
+  body[data-mode="figma"] h1.page-title::after{content:" · Figma"}
+  /* Figma URL input */
+  .url-input{width:100%;margin-top:12px;padding:14px 16px;background:var(--bg-elev);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;transition:border-color .15s}
+  .url-input:focus{border-color:var(--accent)}
+  .figma-preview{margin-top:12px;padding:12px 14px;background:var(--bg-elev);border:1px solid var(--border);border-radius:10px;font-size:13px;color:var(--text-dim);display:none}
+  .figma-preview.show{display:flex;align-items:center;gap:10px}
+  .figma-preview .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex-shrink:0}
+  .figma-preview.loading .dot{background:var(--warn);animation:pulse 1s ease-in-out infinite}
+  .figma-preview.error .dot{background:var(--danger)}
+  @keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
+  @media (max-width:640px){
+    header{margin-bottom:32px}
+    .gnb a{padding:8px 10px;font-size:12px}
+  }
   h1{font-size:56px;line-height:1.1;letter-spacing:-.03em;font-weight:800;margin-bottom:24px}
   .lede{color:var(--text-dim);font-size:17px;font-weight:400;line-height:1.65;
     letter-spacing:-.005em;margin-bottom:36px;max-width:760px}
@@ -322,6 +348,16 @@ INDEX_HTML = """<!doctype html>
         <path d="M45.4524 46.1534L62.6627 0.663574H67.8609L85.0711 46.1534H80.1365L65.2652 5.62696L50.2653 46.1534H45.4592H45.4524Z" fill="#FF6B35"/>
       </svg>
     </div>
+    <nav class="gnb" aria-label="검수 방식 선택">
+      <a href="/" data-page="image">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+        이미지 검수
+      </a>
+      <a href="/figma" data-page="figma">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 2h3v6H9a3 3 0 1 1 0-6z"/><path d="M12 2h3a3 3 0 1 1 0 6h-3V2z"/><path d="M9 8h3v6H9a3 3 0 1 1 0-6z"/><path d="M12 8h3a3 3 0 1 1-3 3V8z" fill="none"/><circle cx="15" cy="11" r="3"/><path d="M9 14h3v3a3 3 0 1 1-3-3z"/></svg>
+        Figma 검수
+      </a>
+    </nav>
   </header>
 
   <section class="input-phase">
@@ -362,7 +398,7 @@ INDEX_HTML = """<!doctype html>
 
     <div id="banner" class="banner" role="alert" aria-live="polite"></div>
 
-    <div class="card">
+    <div class="card image-input">
       <div class="label">이미지</div>
       <label class="drop" id="dropZone">
         <input id="fileInput" type="file" accept="image/*" class="sr-only">
@@ -373,6 +409,22 @@ INDEX_HTML = """<!doctype html>
         <span id="fileName" class="file-name"></span>
       </label>
       <div id="preview" class="preview"><img id="previewImg" alt=""></div>
+    </div>
+
+    <div class="card figma-input">
+      <div class="label">Figma 링크</div>
+      <label class="drop" id="figmaDropZone" for="figmaUrlInput">
+        <span class="icon">⧉</span>
+        <span class="title">Figma URL을 여기에 드래그하거나 아래에 붙여넣기</span>
+        <span class="hint">특정 프레임을 선택한 상태로 복사한 URL이 필요해요 (node-id 포함)</span>
+        <span class="btn-sec">URL 붙여넣기</span>
+      </label>
+      <input id="figmaUrlInput" class="url-input" type="url" autocomplete="off" spellcheck="false"
+             placeholder="https://www.figma.com/design/XXXX/파일명?node-id=12-345">
+      <div id="figmaPreview" class="figma-preview" role="status" aria-live="polite">
+        <span class="dot"></span>
+        <span id="figmaPreviewText">—</span>
+      </div>
     </div>
 
     <div class="card">
@@ -485,6 +537,16 @@ INDEX_HTML = """<!doctype html>
   let currentMedia = 'social';
   let currentSubtype = '';
   let extraChecks = [];
+  // Figma mode state
+  const PAGE_MODE = document.body.dataset.mode === 'figma' ? 'figma' : 'image';
+  let figmaUrlOk = false;   // 현재 입력된 URL이 유효한지
+  let figmaParsedUrl = '';  // 유효 URL 원문 (서버에 보낼 값)
+  let figmaFrameName = '';  // 검수 결과에 표시할 식별자
+
+  // GNB 현재 모드 활성화
+  document.querySelectorAll('.gnb a[data-page]').forEach(a => {
+    a.classList.toggle('on', a.dataset.page === PAGE_MODE);
+  });
 
   const SUBTYPES = {
     social: [['feed','정방형 피드'],['reels','릴스 커버'],['ext-feature','외부용 기획전']],
@@ -580,6 +642,91 @@ INDEX_HTML = """<!doctype html>
     });
   }
 
+  // ---- Figma URL 입력 ----
+  function parseFigmaUrlClient(raw){
+    // 반환: { ok:true, url, fileKey, nodeId, frameHint } 또는 { ok:false, reason }
+    const s = (raw || '').trim();
+    if (!s) return { ok:false, reason:'empty' };
+    let u;
+    try { u = new URL(s); } catch(_) { return { ok:false, reason:'invalid' }; }
+    if (!/(^|\.)figma\.com$/i.test(u.hostname)) return { ok:false, reason:'not-figma' };
+    const m = u.pathname.match(/\/(file|design|proto)\/([A-Za-z0-9]+)(?:\/([^\/?#]+))?/);
+    if (!m) return { ok:false, reason:'no-file-key' };
+    const fileKey = m[2];
+    const frameHint = m[3] ? decodeURIComponent(m[3]).replace(/-/g,' ') : '';
+    const nodeIdRaw = u.searchParams.get('node-id');
+    if (!nodeIdRaw) return { ok:false, reason:'no-node' };
+    // Figma API 는 node-id 를 "12:345" 형식으로 원함. URL 에는 "12-345" 로 옴.
+    const nodeId = nodeIdRaw.replace(/-/g, ':');
+    return { ok:true, url:s, fileKey, nodeId, frameHint };
+  }
+
+  function setFigmaStatus(state, text){
+    const box = $('#figmaPreview');
+    const label = $('#figmaPreviewText');
+    box.classList.remove('show','loading','error');
+    if (!state){ return; }
+    box.classList.add('show');
+    if (state === 'loading') box.classList.add('loading');
+    if (state === 'error')   box.classList.add('error');
+    label.textContent = text || '';
+  }
+
+  function onFigmaUrlChange(raw){
+    const r = parseFigmaUrlClient(raw);
+    const btn = $('#analyzeBtn');
+    if (r.ok) {
+      figmaUrlOk = true;
+      figmaParsedUrl = r.url;
+      figmaFrameName = r.frameHint || 'Figma frame';
+      setFigmaStatus('ok', `프레임 확인됨 · ${r.frameHint || r.fileKey} (node ${r.nodeId})`);
+      btn.disabled = false;
+      $('#btnText').textContent = '검수 시작';
+      hideBanner();
+    } else {
+      figmaUrlOk = false;
+      figmaParsedUrl = '';
+      figmaFrameName = '';
+      btn.disabled = true;
+      if (r.reason === 'empty') {
+        setFigmaStatus('');
+        $('#btnText').textContent = 'Figma URL을 입력해 주세요';
+      } else if (r.reason === 'no-node') {
+        setFigmaStatus('error', 'node-id가 없어요 → Figma에서 특정 프레임을 선택한 뒤 우클릭 → "Copy link to selection"으로 복사해주세요.');
+        $('#btnText').textContent = 'URL에 node-id가 필요해요';
+      } else if (r.reason === 'not-figma') {
+        setFigmaStatus('error', 'figma.com URL이 아니에요.');
+        $('#btnText').textContent = 'Figma URL을 입력해 주세요';
+      } else {
+        setFigmaStatus('error', '유효하지 않은 Figma URL이에요.');
+        $('#btnText').textContent = 'Figma URL을 입력해 주세요';
+      }
+    }
+  }
+
+  if (PAGE_MODE === 'figma') {
+    const urlInput = $('#figmaUrlInput');
+    urlInput.addEventListener('input', (e) => onFigmaUrlChange(e.target.value));
+    urlInput.addEventListener('paste', (e) => {
+      // paste 직후 값이 세팅되도록 다음 tick 에 처리
+      setTimeout(() => onFigmaUrlChange(urlInput.value), 0);
+    });
+    // 드롭존에 URL 텍스트 드롭 지원
+    const fdz = $('#figmaDropZone');
+    ['dragenter','dragover'].forEach(ev => fdz.addEventListener(ev, e => { e.preventDefault(); fdz.classList.add('active'); }));
+    ['dragleave','drop'].forEach(ev => fdz.addEventListener(ev, e => { e.preventDefault(); fdz.classList.remove('active'); }));
+    fdz.addEventListener('drop', e => {
+      const txt = (e.dataTransfer && (e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain'))) || '';
+      if (txt) {
+        urlInput.value = txt.trim();
+        onFigmaUrlChange(urlInput.value);
+        urlInput.focus();
+      }
+    });
+    // 초기 상태: 버튼 텍스트
+    $('#btnText').textContent = 'Figma URL을 입력해 주세요';
+  }
+
   async function handleFile(file){
     if (!file.type.startsWith('image/')){ showBanner('이미지 파일만 업로드할 수 있어요.'); return; }
     selectedFile = file;
@@ -614,8 +761,39 @@ INDEX_HTML = """<!doctype html>
   let lastResult = null;
 
   $('#analyzeBtn').addEventListener('click', async () => {
-    if(!selectedFile || !selectedDataUrl){ showBanner('이미지를 먼저 업로드해 주세요.'); return; }
     const btn = $('#analyzeBtn');
+
+    if (PAGE_MODE === 'figma') {
+      if (!figmaUrlOk || !figmaParsedUrl) { showBanner('유효한 Figma URL을 입력해 주세요.'); return; }
+      btn.disabled = true;
+      $('#btnText').innerHTML = '<span class="spinner"></span> Figma 렌더링 후 검수 중… (최대 80초)';
+      try {
+        const r = await fetch('/api/review-figma', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            figmaUrl: figmaParsedUrl,
+            mediaType: currentMedia,
+            subtype: currentSubtype,
+            extras: extraChecks,
+            context: $('#context').value || ''
+          })
+        });
+        if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname); return; }
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || '요청 실패');
+        lastResult = data;
+        render(data);
+      } catch(err) {
+        showBanner('오류: ' + err.message, 'error');
+        btn.disabled = false;
+        $('#btnText').textContent = '다시 시도';
+      }
+      return;
+    }
+
+    // image mode (기존 동작)
+    if(!selectedFile || !selectedDataUrl){ showBanner('이미지를 먼저 업로드해 주세요.'); return; }
     btn.disabled = true;
     $('#btnText').innerHTML = '<span class="spinner"></span> 검수 중… (최대 60초)';
 
@@ -666,7 +844,7 @@ INDEX_HTML = """<!doctype html>
       $('#resultThumb').classList.add('show');
     } else if (d._thumb) {
       $('#resultThumbImg').src = d._thumb;
-      $('#resultThumbName').textContent = '공유된 검수 결과';
+      $('#resultThumbName').textContent = d._thumbName || (d._figmaFrame ? ('Figma · ' + d._figmaFrame) : '공유된 검수 결과');
       $('#resultThumb').classList.add('show');
     }
 
@@ -730,23 +908,35 @@ INDEX_HTML = """<!doctype html>
   }
   function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
-  // 새 이미지로 검수하기: 전체 리셋
+  // 상태에 따라 버튼/문구를 초기화
+  function resetAnalyzeButton(){
+    if (PAGE_MODE === 'figma') {
+      $('#analyzeBtn').disabled = !figmaUrlOk;
+      $('#btnText').textContent = figmaUrlOk ? '검수 시작' : 'Figma URL을 입력해 주세요';
+    } else {
+      $('#analyzeBtn').disabled = !selectedDataUrl;
+      $('#btnText').textContent = selectedDataUrl ? '검수 시작' : '이미지를 업로드해 주세요';
+    }
+  }
+
+  // 새 이미지/링크로 검수하기: 전체 리셋
   $('#backBtn').addEventListener('click', () => {
     document.querySelector('.input-phase').style.display = '';
     $('#resultPhase').classList.remove('show');
     $('#resultThumb').classList.remove('show');
-    $('#analyzeBtn').disabled = !selectedDataUrl;
-    $('#btnText').textContent = selectedDataUrl ? '검수 시작' : '이미지를 업로드해 주세요';
+    resetAnalyzeButton();
     hideBanner();
     window.scrollTo({top:0, behavior:'smooth'});
   });
+  // 모드에 맞춰 "새 ~로 검수하기" 문구도 바꿔줌
+  $('#backBtn').textContent = PAGE_MODE === 'figma' ? '← 새 Figma 링크로 검수하기' : '← 새 이미지로 검수하기';
 
-  // 매체 타입만 바꿔서 재검수: 이미지·파일 상태 유지
+  // 매체 타입만 바꿔서 재검수: 이미지/URL 상태 유지
   $('#btnReanalyze').addEventListener('click', () => {
     document.querySelector('.input-phase').style.display = '';
     $('#resultPhase').classList.remove('show');
     hideBanner();
-    $('#analyzeBtn').disabled = !selectedDataUrl;
+    $('#analyzeBtn').disabled = (PAGE_MODE === 'figma') ? !figmaUrlOk : !selectedDataUrl;
     $('#btnText').textContent = '검수 시작';
     window.scrollTo({top:0, behavior:'smooth'});
     // 포커스를 매체 선택 카드로
@@ -969,6 +1159,130 @@ def parse_image(data_url: str):
         return m.group(1), m.group(2)
     # raw base64 -> assume png
     return "image/png", data_url
+
+
+# ---------------------------------------------------------------------------
+# Figma integration
+# ---------------------------------------------------------------------------
+_FIGMA_URL_RE = re.compile(
+    r"^https?://(?:www\.)?figma\.com/(file|design|proto)/"
+    r"(?P<key>[A-Za-z0-9]+)(?:/(?P<slug>[^/?#]+))?",
+    re.IGNORECASE,
+)
+
+
+def parse_figma_url(url: str):
+    """Parse a Figma URL.
+
+    Returns dict(file_key, node_id, frame_hint) or raises ValueError.
+    Expects a URL like:
+      https://www.figma.com/design/ABC123/MyFile?node-id=12-345
+    node-id must be present; dashes are converted to ':' for the Figma API.
+    """
+    if not url or not isinstance(url, str):
+        raise ValueError("Figma URL이 비어있습니다.")
+    url = url.strip()
+    m = _FIGMA_URL_RE.match(url)
+    if not m:
+        raise ValueError("유효하지 않은 Figma URL입니다. (figma.com 주소여야 합니다)")
+    file_key = m.group("key")
+    slug = m.group("slug") or ""
+    frame_hint = ""
+    if slug:
+        try:
+            from urllib.parse import unquote
+            frame_hint = unquote(slug).replace("-", " ")
+        except Exception:
+            frame_hint = slug
+    # node-id 추출 (querystring 에서)
+    try:
+        from urllib.parse import urlparse, parse_qs
+        qs = parse_qs(urlparse(url).query)
+        node_raw = (qs.get("node-id") or [""])[0]
+    except Exception:
+        node_raw = ""
+    if not node_raw:
+        raise ValueError(
+            "URL에 node-id가 없어요. Figma에서 특정 프레임을 선택한 뒤 "
+            "우클릭 → \"Copy link to selection\"으로 복사해주세요."
+        )
+    node_id = node_raw.replace("-", ":")
+    return {"file_key": file_key, "node_id": node_id, "frame_hint": frame_hint}
+
+
+def fetch_figma_image(file_key: str, node_id: str, *, scale: str = None, timeout: int = 50):
+    """Ask Figma to render the given node as PNG, then download the bytes.
+
+    Returns (png_bytes, frame_name) where frame_name is best-effort.
+    Raises RuntimeError with a user-friendly message on failure.
+    """
+    if not FIGMA_TOKEN:
+        raise RuntimeError(
+            "서버에 FIGMA_TOKEN이 설정되어 있지 않아요. 관리자에게 문의해주세요."
+        )
+    scale = scale or FIGMA_RENDER_SCALE or "1.5"
+    headers = {"X-Figma-Token": FIGMA_TOKEN}
+    # 1) 이미지 렌더 요청
+    img_url = (
+        f"https://api.figma.com/v1/images/{file_key}"
+        f"?ids={node_id}&format=png&scale={scale}"
+    )
+    try:
+        r = requests.get(img_url, headers=headers, timeout=timeout)
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Figma 서버와 연결에 실패했어요: {exc}") from exc
+    if r.status_code == 403:
+        raise RuntimeError(
+            "Figma 파일에 접근할 수 없어요. 토큰의 권한 또는 파일 공유 설정을 확인해주세요."
+        )
+    if r.status_code == 404:
+        raise RuntimeError(
+            "해당 Figma 파일이나 노드를 찾을 수 없어요. URL을 다시 확인해주세요."
+        )
+    if r.status_code != 200:
+        snippet = (r.text or "")[:200].replace("\n", " ")
+        raise RuntimeError(f"Figma API 오류 (HTTP {r.status_code}): {snippet}")
+
+    body = r.json() or {}
+    if body.get("err"):
+        raise RuntimeError(f"Figma API 오류: {body.get('err')}")
+    images = body.get("images") or {}
+    signed_url = images.get(node_id)
+    if not signed_url:
+        raise RuntimeError(
+            "Figma에서 해당 노드를 렌더링하지 못했어요. 프레임/컴포넌트를 선택한 링크인지 확인해주세요."
+        )
+
+    # 2) 실제 PNG 다운로드 (Figma 가 내려준 임시 S3 URL)
+    try:
+        dl = requests.get(signed_url, timeout=timeout, stream=True)
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Figma 이미지 다운로드에 실패했어요: {exc}") from exc
+    if dl.status_code != 200:
+        raise RuntimeError(f"Figma 이미지 다운로드 실패 (HTTP {dl.status_code}).")
+    # 최대 20MB 제한 (악의적 페이로드 방지)
+    content = b""
+    for chunk in dl.iter_content(1 << 15):
+        content += chunk
+        if len(content) > 20 * 1024 * 1024:
+            raise RuntimeError("Figma 이미지가 너무 커요 (20MB 초과). 더 작은 프레임을 선택해주세요.")
+    if not content:
+        raise RuntimeError("Figma가 빈 이미지를 반환했어요.")
+
+    # 3) 프레임 이름 best-effort (files/nodes 호출)
+    frame_name = ""
+    try:
+        nr = requests.get(
+            f"https://api.figma.com/v1/files/{file_key}/nodes?ids={node_id}",
+            headers=headers, timeout=15,
+        )
+        if nr.status_code == 200:
+            nb = nr.json() or {}
+            nd = ((nb.get("nodes") or {}).get(node_id) or {}).get("document") or {}
+            frame_name = nd.get("name", "") or ""
+    except Exception:
+        pass
+    return content, frame_name
 
 
 RESPONSE_SCHEMA = {
@@ -1221,6 +1535,7 @@ def healthz():
     return jsonify(
         ok=True,
         geminiConfigured=bool(GEMINI_API_KEY),
+        figmaConfigured=bool(FIGMA_TOKEN),
         authEnabled=_auth_enabled(),
         models=GEMINI_MODELS,
     )
@@ -1306,6 +1621,100 @@ def review():
 
     except Exception:  # noqa: BLE001
         log.exception("[%s] review failed", req_id)
+        return jsonify(
+            error="서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+            requestId=req_id,
+        ), 500
+
+
+@app.route("/figma", methods=["GET"])
+@login_required
+def figma_page():
+    """Figma URL 기반 검수 페이지. INDEX_HTML 을 재사용하되 body 에 모드 플래그를 박는다."""
+    html = INDEX_HTML.replace("<body>", '<body data-mode="figma">', 1)
+    if not _auth_enabled():
+        html = html.replace(
+            '<form method="post" action="/logout" class="logout-form"',
+            '<form method="post" action="/logout" class="logout-form" style="display:none"',
+            1,
+        )
+    return Response(html, mimetype="text/html; charset=utf-8")
+
+
+@app.route("/api/review-figma", methods=["POST"])
+@login_required
+def review_figma():
+    """Figma URL 을 받아 해당 프레임을 PNG 로 렌더 후 기존 검수 파이프라인에 태운다."""
+    req_id = uuid.uuid4().hex[:8]
+    try:
+        rl_key = session.get("sid") or f"ip:{request.remote_addr}"
+        ok, msg = _rate_limit_check(rl_key)
+        if not ok:
+            log.info("[%s] rate limited key=%s", req_id, rl_key)
+            return jsonify(error=msg), 429
+
+        data = request.get_json(silent=True) or {}
+        figma_url = (data.get("figmaUrl") or "").strip()
+        media_type = data.get("mediaType", "social")
+        subtype = data.get("subtype", "")
+        extras = data.get("extras", []) or []
+        context = data.get("context", "")
+
+        if not figma_url:
+            return jsonify(error="Figma URL이 비어있습니다."), 400
+
+        # 1) URL 파싱
+        try:
+            parsed = parse_figma_url(figma_url)
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+
+        # 2) Figma 렌더 + 이미지 다운로드
+        try:
+            png_bytes, frame_name = fetch_figma_image(parsed["file_key"], parsed["node_id"])
+        except RuntimeError as exc:
+            log.warning("[%s] figma fetch failed: %s", req_id, exc)
+            return jsonify(error=str(exc)), 502
+
+        # 3) Gemini 호출 (기존 파이프라인 재사용)
+        b64 = base64.b64encode(png_bytes).decode("ascii")
+        # 제작 맥락에 Figma 프레임 이름을 덧붙여 힌트 제공
+        display_name = frame_name or parsed.get("frame_hint") or "Figma frame"
+        base_ctx = (context or "").strip()
+        suffix = f"(Figma 프레임: {display_name})" if display_name else ""
+        extended_context = (base_ctx + " " + suffix).strip() if base_ctx and suffix else (base_ctx or suffix)
+        prompt = build_prompt(media_type, subtype, extras, extended_context)
+
+        if not GEMINI_API_KEY:
+            log.error("[%s] GEMINI_API_KEY not configured", req_id)
+            return jsonify(error="검수 엔진이 설정되지 않았습니다. 관리자에게 문의해주세요."), 503
+
+        try:
+            result = call_gemini(prompt, "image/png", b64)
+            result.setdefault("source", "gemini-figma")
+            # 썸네일을 결과에 포함 (공유 URL 에서도 보이도록)
+            data_url = "data:image/png;base64," + b64
+            result["_thumb"] = data_url
+            result["_thumbName"] = f"Figma · {display_name}"
+            result["_figmaUrl"] = figma_url
+            result["_figmaFrame"] = display_name
+            rid = _save_result(result)
+            result["reviewId"] = rid
+            log.info(
+                "[%s] figma review ok model=%s score=%s key=%s node=%s",
+                req_id, result.get("modelUsed"), result.get("overallScore"),
+                parsed["file_key"], parsed["node_id"],
+            )
+            return jsonify(result)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[%s] Gemini failed: %s", req_id, str(exc)[:240])
+            return jsonify(
+                error="일시적으로 검수를 완료하지 못했어요. 잠시 후 다시 시도해주세요.",
+                requestId=req_id,
+            ), 503
+
+    except Exception:  # noqa: BLE001
+        log.exception("[%s] review-figma failed", req_id)
         return jsonify(
             error="서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
             requestId=req_id,
