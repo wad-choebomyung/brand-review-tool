@@ -323,11 +323,18 @@ INDEX_HTML = """<!doctype html>
   .ba-section h3{font-size:13px;color:var(--text-faint);letter-spacing:.1em;text-transform:uppercase;
     margin-bottom:6px;font-weight:600}
   .ba-section .ba-caption{font-size:13px;color:var(--text-dim);margin-bottom:14px}
-  .ba-wrap{position:relative;width:100%;user-select:none;border-radius:12px;overflow:hidden;
+  .ba-note{font-size:12px;color:var(--text-faint);padding:10px 12px;margin-bottom:12px;
+    background:var(--bg-elev-2);border:1px solid var(--border);border-radius:8px;line-height:1.55}
+  .ba-wrap{position:relative;width:100%;max-width:720px;margin:0 auto;
+    user-select:none;border-radius:12px;overflow:hidden;
     background:#000;border:1px solid var(--border);touch-action:none}
-  .ba-img-before{display:block;width:100%;height:auto;pointer-events:none}
-  .ba-after-wrap{position:absolute;top:0;left:0;bottom:0;width:50%;overflow:hidden;will-change:width}
-  .ba-after-wrap img{position:absolute;top:0;left:0;width:var(--ba-full-w,100%);
+  .ba-wrap img{display:block;width:100%;height:auto;pointer-events:none;
+    max-height:70vh;object-fit:contain;margin:0 auto}
+  /* 아래 이미지 = 개선안(After, 전체 노출). 오버레이 = 원본(Before, 왼쪽부터 덮음). */
+  .ba-img-after{display:block;width:100%;height:auto;pointer-events:none}
+  .ba-before-wrap{position:absolute;top:0;left:0;bottom:0;width:50%;overflow:hidden;
+    will-change:width}
+  .ba-before-wrap img{position:absolute;top:0;left:0;width:var(--ba-full-w,100%);
     height:auto;max-width:none;display:block;pointer-events:none}
   .ba-handle{position:absolute;top:0;bottom:0;left:50%;width:2px;background:var(--accent);
     transform:translateX(-50%);pointer-events:none;box-shadow:0 0 12px rgba(255,107,53,.5)}
@@ -974,10 +981,11 @@ INDEX_HTML = """<!doctype html>
 
     if (afterSrc) {
       body.innerHTML = ''
+        + '<div class="ba-note">⚠︎ 이미지 모델 특성상 한글 글자는 렌더링 과정에서 일부 뭉개질 수 있어요. 레이아웃·색·톤 제안을 참고용으로 봐주세요.</div>'
         + '<div class="ba-wrap" id="baWrap">'
-        +   '<img class="ba-img-before" id="baBefore" alt="원본" />'
-        +   '<div class="ba-after-wrap" id="baAfterWrap">'
-        +     '<img class="ba-img-after" id="baAfter" alt="개선안" />'
+        +   '<img class="ba-img-after" id="baAfter" alt="개선안" />'
+        +   '<div class="ba-before-wrap" id="baBeforeWrap">'
+        +     '<img class="ba-img-before" id="baBefore" alt="원본" />'
         +   '</div>'
         +   '<div class="ba-label before">Before</div>'
         +   '<div class="ba-label after">After</div>'
@@ -990,7 +998,7 @@ INDEX_HTML = """<!doctype html>
       const wrap = $('#baWrap');
       const before = $('#baBefore');
       const after = $('#baAfter');
-      const afterWrap = $('#baAfterWrap');
+      const beforeWrap = $('#baBeforeWrap');
       const handle = $('#baHandle');
       const scrub = $('#baScrub');
 
@@ -1000,20 +1008,23 @@ INDEX_HTML = """<!doctype html>
       }
 
       function setPos(pct){
+        // pct = 원본(Before)이 좌측부터 차지하는 비율.
+        // 0%면 전체 After, 100%면 전체 Before.
         pct = Math.max(0, Math.min(100, pct));
-        afterWrap.style.width = pct + '%';
+        beforeWrap.style.width = pct + '%';
         handle.style.left = pct + '%';
         scrub.setAttribute('aria-valuenow', Math.round(pct));
       }
 
+      after.addEventListener('load', syncSize);
       before.addEventListener('load', syncSize);
       window.addEventListener('resize', syncSize);
 
-      before.src = beforeSrc;
+      // 크기의 기준이 되는 After(아래 깔리는 이미지)부터 먼저 세팅
       after.src = afterSrc;
+      before.src = beforeSrc;
 
-      // 이미 캐시되어 있으면 load 이벤트가 안 뜨므로 즉시 동기화
-      if (before.complete) syncSize();
+      if (after.complete) syncSize();
       setPos(50);
 
       let dragging = false;
@@ -1033,7 +1044,7 @@ INDEX_HTML = """<!doctype html>
       window.addEventListener('mouseup', onUp);
       window.addEventListener('touchend', onUp);
       scrub.addEventListener('keydown', (e) => {
-        const cur = parseFloat(afterWrap.style.width) || 50;
+        const cur = parseFloat(beforeWrap.style.width) || 50;
         if (e.key === 'ArrowLeft')  setPos(cur - 2);
         if (e.key === 'ArrowRight') setPos(cur + 2);
         if (e.key === 'Home')       setPos(0);
@@ -1591,28 +1602,34 @@ def build_improvement_instruction(review: dict) -> str:
 
     return f"""You are a senior brand designer. Edit the attached image to produce an improved version that follows the CatchTable brand guide.
 
+[ABSOLUTE CONSTRAINT — TEXT PRESERVATION]
+- The image contains KOREAN text (한글) and possibly English. You MUST keep every character pixel-identical to the original.
+- DO NOT redraw, retrace, re-kern, re-letter, or regenerate any glyph. Treat all text regions as locked pixels.
+- DO NOT translate, rephrase, truncate, or re-layout any text. Every 한글 자모 must stay exactly as drawn.
+- If you cannot preserve the text, LEAVE THE TEXT REGION UNTOUCHED rather than guessing. Mangled Korean is unacceptable.
+
 [STRICT CONSTRAINTS — MUST FOLLOW]
 1. Preserve the original layout, composition, and element placement EXACTLY. Do not move, resize, add, or remove any element.
-2. Preserve the original language, wording, and text content. Keep all Korean/English text identical in meaning. Minor typographic refinement is OK, but do not rewrite sentences.
-3. Preserve the primary subject (food/space/people/logo) — do not replace or regenerate it.
-4. You may ONLY improve the following aspects:
-   - Typography: font weight, letter-spacing, line-height, size hierarchy, weight contrast
-   - Color: palette harmony, tone consistency, contrast ratio, saturation balance
-   - Text-image harmony: readability adjustments (subtle overlay/shadow only if needed)
+2. Preserve the primary subject (food/space/people/logo) — do not replace or regenerate it.
+3. You may ONLY adjust the following NON-TEXT aspects:
+   - Background color tone/saturation balance
+   - Non-text color palette harmony and contrast
+   - Non-text graphical accents (lines, shapes) color only
+   - Subtle overlay/shadow behind text for readability (without touching the text pixels themselves)
+4. Do NOT change font, do NOT change letter-spacing, do NOT change text size. Typography hints below are for palette/background context only — apply them to areas around the text, not to the text.
 
 [BRAND GUIDE HIGHLIGHTS]
 - Mood: refined, culinary, calm, premium
-- Typography: clean sans-serif with clear hierarchy; avoid all-caps decorative fonts
 - Color: warm neutrals + a single accent; avoid clashing bright colors
-- Text must be legible against its background
+- Contrast: text must remain legible against its background (adjust background, not text)
 
 [FOCUS AREAS (weakest subscores)]
 {weak_desc}
 
-[ISSUES TO ADDRESS]
+[ISSUES TO ADDRESS — apply only to non-text regions]
 {issues_text}
 
-Return ONLY the improved image as PNG. Do not add watermarks, labels, or annotations."""
+Return ONLY the improved image as PNG with identical resolution and aspect ratio to the input. Do not add watermarks, labels, or annotations."""
 
 
 def call_gemini_image_edit(instruction: str, b64: str, mime: str = "image/png",
