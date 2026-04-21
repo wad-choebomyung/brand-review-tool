@@ -74,6 +74,10 @@ GEMINI_URL_TEMPLATE = (
     "{model}:generateContent?key={key}"
 )
 
+# 이미지 편집용 모델 (Figma 개선안 생성에 사용)
+GEMINI_IMAGE_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image-preview").strip()
+GEMINI_IMAGE_ENABLED = os.environ.get("GEMINI_IMAGE_ENABLED", "true").strip().lower() != "false"
+
 # ---------------------------------------------------------------------------
 # Brand guide prompt (embedded so it always ships with the app)
 # ---------------------------------------------------------------------------
@@ -303,6 +307,39 @@ INDEX_HTML = """<!doctype html>
   .banner.show{display:block}
   .banner.error{background:#2a1515;border-color:#5a2626;color:#ff8a8a}
 
+  /* Before/After 슬라이더 (Figma 개선안 비교용) */
+  .ba-section{display:none;padding:24px 28px;background:var(--bg-elev);border:1px solid var(--border);
+    border-radius:14px;margin-bottom:14px}
+  .ba-section.show{display:block}
+  .ba-section h3{font-size:13px;color:var(--text-faint);letter-spacing:.1em;text-transform:uppercase;
+    margin-bottom:6px;font-weight:600}
+  .ba-section .ba-caption{font-size:13px;color:var(--text-dim);margin-bottom:14px}
+  .ba-wrap{position:relative;width:100%;user-select:none;border-radius:12px;overflow:hidden;
+    background:#000;border:1px solid var(--border);touch-action:none}
+  .ba-img-before{display:block;width:100%;height:auto;pointer-events:none}
+  .ba-after-wrap{position:absolute;top:0;left:0;bottom:0;width:50%;overflow:hidden;will-change:width}
+  .ba-after-wrap img{position:absolute;top:0;left:0;width:var(--ba-full-w,100%);
+    height:auto;max-width:none;display:block;pointer-events:none}
+  .ba-handle{position:absolute;top:0;bottom:0;left:50%;width:2px;background:var(--accent);
+    transform:translateX(-50%);pointer-events:none;box-shadow:0 0 12px rgba(255,107,53,.5)}
+  .ba-handle::before{content:"";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    width:36px;height:36px;border-radius:50%;background:var(--accent);
+    box-shadow:0 2px 12px rgba(0,0,0,.4)}
+  .ba-handle::after{content:"\2194";position:absolute;top:50%;left:50%;
+    transform:translate(-50%,-50%);color:#fff;font-size:16px;font-weight:900;
+    line-height:1;letter-spacing:-.05em}
+  .ba-scrub{position:absolute;inset:0;cursor:ew-resize}
+  .ba-label{position:absolute;top:12px;padding:5px 10px;border-radius:20px;
+    font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+    background:rgba(0,0,0,.65);color:#fff;backdrop-filter:blur(8px);pointer-events:none}
+  .ba-label.before{left:12px}
+  .ba-label.after{right:12px;background:rgba(255,107,53,.85)}
+  .ba-loading{display:flex;align-items:center;justify-content:center;aspect-ratio:4/3;
+    background:var(--bg-elev-2);color:var(--text-dim);font-size:13px;
+    border:1px dashed var(--border);border-radius:12px;gap:10px}
+  .ba-error{padding:14px;border-radius:10px;background:#2a1515;border:1px solid #5a2626;
+    color:#ff8a8a;font-size:13px;text-align:center}
+
   /* Keyboard focus */
   *:focus{outline:none}
   *:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
@@ -529,6 +566,12 @@ INDEX_HTML = """<!doctype html>
       <div class="section" id="improvementsSection">
         <h3>개선점</h3>
         <ul id="improvements"></ul>
+      </div>
+
+      <div class="ba-section" id="baSection">
+        <h3>개선안 비교</h3>
+        <p class="ba-caption">핸들을 좌우로 드래그해서 원본과 개선안을 비교해 보세요. 타이포·컬러 위주로 조정된 AI 제안입니다.</p>
+        <div id="baBody"></div>
       </div>
     </div>
 
@@ -793,8 +836,8 @@ INDEX_HTML = """<!doctype html>
     if (PAGE_MODE === 'figma') {
       if (!figmaUrlOk || !figmaParsedUrl) { showBanner('유효한 Figma URL을 입력해 주세요.'); return; }
       btn.disabled = true;
-      $('#btnText').textContent = 'Figma 렌더링 후 검수 중… (최대 80초)';
-      startProgress(80);
+      $('#btnText').textContent = '검수 + 개선안 생성 중… (최대 100초)';
+      startProgress(100);
       try {
         const r = await fetch('/api/review-figma', {
           method:'POST',
@@ -903,7 +946,96 @@ INDEX_HTML = """<!doctype html>
 
     fillList('#strengths', d.strengths || []);
     fillList('#improvements', d.improvements || []);
+
+    renderBeforeAfter(d);
+
     window.scrollTo({top:0, behavior:'smooth'});
+  }
+
+  function renderBeforeAfter(d){
+    const section = $('#baSection');
+    const body = $('#baBody');
+    if (!section || !body) return;
+
+    // Figma 모드의 개선안만 노출 (이미지 업로드 모드엔 미적용)
+    const beforeSrc = d._thumb;
+    const afterSrc = d._improvedImage;
+
+    if (!beforeSrc) { section.classList.remove('show'); return; }
+
+    if (afterSrc) {
+      body.innerHTML = ''
+        + '<div class="ba-wrap" id="baWrap">'
+        +   '<img class="ba-img-before" id="baBefore" alt="원본" />'
+        +   '<div class="ba-after-wrap" id="baAfterWrap">'
+        +     '<img class="ba-img-after" id="baAfter" alt="개선안" />'
+        +   '</div>'
+        +   '<div class="ba-label before">Before</div>'
+        +   '<div class="ba-label after">After</div>'
+        +   '<div class="ba-handle" id="baHandle"></div>'
+        +   '<div class="ba-scrub" id="baScrub" role="slider" aria-label="Before After 비교" '
+        +        'aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" tabindex="0"></div>'
+        + '</div>';
+      section.classList.add('show');
+
+      const wrap = $('#baWrap');
+      const before = $('#baBefore');
+      const after = $('#baAfter');
+      const afterWrap = $('#baAfterWrap');
+      const handle = $('#baHandle');
+      const scrub = $('#baScrub');
+
+      function syncSize(){
+        const w = wrap.clientWidth || 0;
+        if (w > 0) wrap.style.setProperty('--ba-full-w', w + 'px');
+      }
+
+      function setPos(pct){
+        pct = Math.max(0, Math.min(100, pct));
+        afterWrap.style.width = pct + '%';
+        handle.style.left = pct + '%';
+        scrub.setAttribute('aria-valuenow', Math.round(pct));
+      }
+
+      before.addEventListener('load', syncSize);
+      window.addEventListener('resize', syncSize);
+
+      before.src = beforeSrc;
+      after.src = afterSrc;
+
+      // 이미 캐시되어 있으면 load 이벤트가 안 뜨므로 즉시 동기화
+      if (before.complete) syncSize();
+      setPos(50);
+
+      let dragging = false;
+      function posFromEvent(ev){
+        const rect = wrap.getBoundingClientRect();
+        const x = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
+        return (x / rect.width) * 100;
+      }
+      function onDown(ev){ dragging = true; setPos(posFromEvent(ev)); ev.preventDefault(); }
+      function onMove(ev){ if (dragging) setPos(posFromEvent(ev)); }
+      function onUp(){ dragging = false; }
+
+      scrub.addEventListener('mousedown', onDown);
+      scrub.addEventListener('touchstart', onDown, {passive:false});
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('touchmove', onMove, {passive:true});
+      window.addEventListener('mouseup', onUp);
+      window.addEventListener('touchend', onUp);
+      scrub.addEventListener('keydown', (e) => {
+        const cur = parseFloat(afterWrap.style.width) || 50;
+        if (e.key === 'ArrowLeft')  setPos(cur - 2);
+        if (e.key === 'ArrowRight') setPos(cur + 2);
+        if (e.key === 'Home')       setPos(0);
+        if (e.key === 'End')        setPos(100);
+      });
+    } else if (d._improvedError) {
+      body.innerHTML = '<div class="ba-error">' + escapeHtml(d._improvedError) + '</div>';
+      section.classList.add('show');
+    } else {
+      section.classList.remove('show');
+    }
   }
 
   function animateScore(target){
@@ -957,6 +1089,7 @@ INDEX_HTML = """<!doctype html>
     document.querySelector('.input-phase').style.display = '';
     $('#resultPhase').classList.remove('show');
     $('#resultThumb').classList.remove('show');
+    $('#baSection').classList.remove('show');
     resetAnalyzeButton();
     hideBanner();
     window.scrollTo({top:0, behavior:'smooth'});
@@ -968,6 +1101,7 @@ INDEX_HTML = """<!doctype html>
   $('#btnReanalyze').addEventListener('click', () => {
     document.querySelector('.input-phase').style.display = '';
     $('#resultPhase').classList.remove('show');
+    $('#baSection').classList.remove('show');
     hideBanner();
     $('#analyzeBtn').disabled = (PAGE_MODE === 'figma') ? !figmaUrlOk : !selectedDataUrl;
     $('#btnText').textContent = '검수 시작';
@@ -1424,6 +1558,109 @@ def call_gemini(prompt: str, mime: str, b64: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# 이미지 개선안 생성 (Figma 전용)
+# 원본 PNG + 검수 결과를 기반으로 타이포/컬러만 개선한 버전을 생성.
+# 레이아웃은 유지하고 시각적 품질만 향상시키는 것이 목표.
+# ---------------------------------------------------------------------------
+
+def build_improvement_instruction(review: dict) -> str:
+    """검수 결과를 바탕으로 이미지 편집 지침을 생성한다."""
+    improvements = review.get("improvements") or []
+    sub = review.get("subscores") or {}
+    # 가장 점수가 낮은 3개 영역에 집중
+    weak_areas = sorted(sub.items(), key=lambda kv: kv[1] if isinstance(kv[1], (int, float)) else 100)[:3]
+    weak_label_map = {
+        "tone": "톤·색감",
+        "typography": "타이포그래피",
+        "composition": "구도",
+        "imageQuality": "이미지 품질",
+        "textImageHarmony": "텍스트·이미지 조화",
+        "brandFit": "브랜드 적합도",
+    }
+    weak_desc = ", ".join(f"{weak_label_map.get(k, k)}({v}점)" for k, v in weak_areas)
+    issues_text = "\n".join(f"- {s}" for s in improvements[:6]) or "- (검수에서 지적된 이슈 없음)"
+
+    return f"""You are a senior brand designer. Edit the attached image to produce an improved version that follows the CatchTable brand guide.
+
+[STRICT CONSTRAINTS — MUST FOLLOW]
+1. Preserve the original layout, composition, and element placement EXACTLY. Do not move, resize, add, or remove any element.
+2. Preserve the original language, wording, and text content. Keep all Korean/English text identical in meaning. Minor typographic refinement is OK, but do not rewrite sentences.
+3. Preserve the primary subject (food/space/people/logo) — do not replace or regenerate it.
+4. You may ONLY improve the following aspects:
+   - Typography: font weight, letter-spacing, line-height, size hierarchy, weight contrast
+   - Color: palette harmony, tone consistency, contrast ratio, saturation balance
+   - Text-image harmony: readability adjustments (subtle overlay/shadow only if needed)
+
+[BRAND GUIDE HIGHLIGHTS]
+- Mood: refined, culinary, calm, premium
+- Typography: clean sans-serif with clear hierarchy; avoid all-caps decorative fonts
+- Color: warm neutrals + a single accent; avoid clashing bright colors
+- Text must be legible against its background
+
+[FOCUS AREAS (weakest subscores)]
+{weak_desc}
+
+[ISSUES TO ADDRESS]
+{issues_text}
+
+Return ONLY the improved image as PNG. Do not add watermarks, labels, or annotations."""
+
+
+def call_gemini_image_edit(instruction: str, b64: str, mime: str = "image/png",
+                            timeout: int = 55) -> str:
+    """Gemini 이미지 모델로 원본을 편집. 편집된 이미지의 base64를 반환."""
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY not configured")
+    if not GEMINI_IMAGE_ENABLED:
+        raise RuntimeError("image editing disabled")
+
+    url = GEMINI_URL_TEMPLATE.format(model=GEMINI_IMAGE_MODEL, key=GEMINI_API_KEY)
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": instruction},
+                    {"inline_data": {"mime_type": mime, "data": b64}},
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.35,
+            "responseModalities": ["IMAGE"],
+        },
+    }
+    try:
+        r = requests.post(url, json=payload, timeout=timeout)
+    except requests.RequestException as exc:
+        raise RuntimeError(f"network error: {exc}")
+
+    log.info("Gemini image-edit model=%s status=%s bytes=%s",
+             GEMINI_IMAGE_MODEL, r.status_code, len(r.content))
+
+    if r.status_code != 200:
+        snippet = r.text[:240].replace("\n", " ")
+        raise RuntimeError(f"image model {r.status_code}: {snippet}")
+
+    body = r.json()
+    try:
+        candidates = body.get("candidates") or []
+        if not candidates:
+            raise RuntimeError("no candidates")
+        parts = candidates[0].get("content", {}).get("parts") or []
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"unexpected shape: {exc}")
+
+    for part in parts:
+        # Google SDK는 camelCase, REST는 snake_case 둘 다 섞여 나올 수 있음
+        data = part.get("inlineData") or part.get("inline_data") or {}
+        if data.get("data"):
+            return data["data"]
+
+    finish = candidates[0].get("finishReason", "?")
+    raise RuntimeError(f"no image in response (finish={finish})")
+
+
+# ---------------------------------------------------------------------------
 # Result store (in-memory, TTL 6h, 최대 200건) — 공유 URL 용
 # Render Free 환경은 인스턴스 재기동 시 초기화됨을 명시. 영속 보관이 필요하면 DB 연동 필요.
 # ---------------------------------------------------------------------------
@@ -1731,6 +1968,19 @@ def review_figma():
             result["_thumbName"] = f"Figma · {display_name}"
             result["_figmaUrl"] = figma_url
             result["_figmaFrame"] = display_name
+
+            # 개선안 이미지 생성 (실패해도 검수 결과는 그대로 반환)
+            if GEMINI_IMAGE_ENABLED:
+                try:
+                    instruction = build_improvement_instruction(result)
+                    improved_b64 = call_gemini_image_edit(instruction, b64, "image/png", timeout=55)
+                    result["_improvedImage"] = "data:image/png;base64," + improved_b64
+                    result["_improvedModel"] = GEMINI_IMAGE_MODEL
+                    log.info("[%s] figma improvement ok model=%s", req_id, GEMINI_IMAGE_MODEL)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("[%s] figma improvement failed: %s", req_id, str(exc)[:240])
+                    result["_improvedError"] = "개선안 이미지 생성에 일시적으로 실패했어요."
+
             rid = _save_result(result)
             result["reviewId"] = rid
             log.info(
